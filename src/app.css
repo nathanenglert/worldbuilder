@@ -1,0 +1,61 @@
+/* Single deliberate theme: a dark drafting surface, the way survey tools look. */
+:root {
+  --paper: #0c1311;
+  --surface: #121b18;
+  --surface-2: #1a2521;
+  --ink: #e4ebe7;
+  --ink-2: #a8b7b0;
+  --ink-3: #7b8b84;
+  --rule: #25322d;
+  --rule-strong: #3a4a44;
+  --accent: #52b9a3;
+  --accent-soft: #15302a;
+  --era: #8ca2d8;
+  --warn: #d69b4e;
+
+  --f-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --f-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--f-body);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  height: 100%;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--accent-soft);
+}

@@ -1,0 +1,28 @@
+[package]
+name = "worldbuilder"
+description = "Worldbuilder desktop application."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "worldbuilder_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { workspace = true }
+serde_json = "1"
+wb-core = { path = "../crates/wb-core" }
+wb-store = { path = "../crates/wb-store" }
+wb-check = { path = "../crates/wb-check" }
+wb-propose = { path = "../crates/wb-propose" }
+similar = "2"
+
+# Debug-only UI automation: screenshots, DOM queries, synthetic input.
+# Registered behind cfg(debug_assertions) so it never ships in a release build.
+tauri-plugin-pilot = { git = "https://github.com/mpiton/tauri-pilot" }

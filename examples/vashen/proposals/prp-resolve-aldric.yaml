@@ -1,0 +1,13 @@
+id: prp_resolve_aldric
+title: Aldric died of his wounds within the year
+author: example
+note: >
+  The consistency engine flags Aldric against the Siege of Marrow: the Marrow chronicle
+  puts him at the walls in 812, but his death is recorded as 0811~. If the chronicle is
+  right, the recorded death is what is wrong. Anchoring his death to the siege itself
+  resolves the question without inventing a date the sources do not have.
+status: pending
+changes:
+  - op: set_existence
+    entity: act_aldric_vane
+    to: "@evt_siege_of_marrow+1y"

@@ -1,0 +1,13 @@
+[package]
+name = "wb-store"
+description = "World loading, file format, and time-indexed queries for Worldbuilder."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+wb-core = { path = "../wb-core" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+serde_yaml_bw = "2"

@@ -1,0 +1,11 @@
+# Known to the month, and not confidently. The `~` widens it by the world's
+# month-level fuzz, so the border it moves is uncertain on both sides.
+id: evt_siege_of_marrow
+name: The Siege of Marrow
+kind: conquest
+date: "0812-04~"
+# Aldric is listed because the Marrow chronicle puts him at the walls. His death is
+# recorded as "0811~", so the consistency engine should flag this as *possible* — the
+# world is genuinely unsure, and that is the point rather than a bug to fix.
+participants: [pol_vashen, pol_corrath, act_aldric_vane]
+location: place_marrow

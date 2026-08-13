@@ -1,0 +1,32 @@
+name: The Vashen Reckoning
+
+calendar:
+  name: Vashen Reckoning
+  months:
+    - { name: Frostwane, days: 30 }
+    - { name: Seedfall, days: 30 }
+    - { name: Greening, days: 30 }
+    - { name: Verdant, days: 30 }
+    - { name: Highsun, days: 30 }
+    - { name: Emberlong, days: 30 }
+    - { name: Goldfell, days: 30 }
+    - { name: Harvestide, days: 30 }
+    - { name: Duskmere, days: 30 }
+    - { name: Rimefall, days: 30 }
+    - { name: Longdark, days: 30 }
+    - { name: Yearsend, days: 30 }
+  weekdays: [Aldsday, Brensday, Corrsday, Dorsday, Ernsday, Faelsday]
+  generation_years: 30
+  eras:
+    - { name: After Reckoning, abbr: AR, starts: 0 }
+
+# How far a `~` widens a date, in days, by the precision it was written at.
+fuzz: { year: 730, month: 30, day: 3 }
+
+types:
+  - { name: noble, primitive: actor, description: A titled person of the great houses. }
+  - { name: duchy, primitive: polity }
+  - { name: empire, primitive: polity }
+  - { name: city, primitive: place }
+  - { name: region, primitive: place }
+  - { name: language, primitive: thing }

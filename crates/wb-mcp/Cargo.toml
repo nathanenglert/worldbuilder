@@ -1,0 +1,29 @@
+[package]
+name = "wb-mcp"
+description = "Local MCP server exposing a Worldbuilder world to any agent the writer brings."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "wb-mcp"
+path = "src/main.rs"
+
+[dependencies]
+wb-core = { path = "../wb-core" }
+wb-store = { path = "../wb-store" }
+wb-check = { path = "../wb-check" }
+wb-propose = { path = "../wb-propose" }
+
+rmcp = { version = "3.1", features = ["server", "macros", "transport-io"] }
+schemars = "1"
+serde = { workspace = true }
+serde_json = "1"
+thiserror = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
+
+[dev-dependencies]
+serde_yaml_bw = "2"
+rmcp = { version = "3.1", features = ["server", "macros", "client"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util"] }

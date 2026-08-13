@@ -1,0 +1,15 @@
+[package]
+name = "wb-propose"
+description = "Review queue for changes to a world: simulate, measure impact, apply."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+wb-core = { path = "../wb-core" }
+wb-store = { path = "../wb-store" }
+wb-check = { path = "../wb-check" }
+serde = { workspace = true }
+serde_yaml_bw = "2"
+thiserror = { workspace = true }

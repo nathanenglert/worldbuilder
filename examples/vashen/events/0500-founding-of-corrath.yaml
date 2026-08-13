@@ -1,0 +1,6 @@
+id: evt_founding_of_corrath
+name: The Founding of Corrath
+kind: founding
+date: "0500-01-01"
+participants: [pol_corrath]
+location: place_corrath_city

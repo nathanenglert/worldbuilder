@@ -1,0 +1,6 @@
+id: evt_oath_of_vashen
+name: The Oath of Vashen
+kind: treaty
+date: "0806-02-14"
+participants: [act_aldric_vane, pol_vashen, pol_corrath]
+location: place_marrow

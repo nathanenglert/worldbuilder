@@ -1,0 +1,12 @@
+[package]
+name = "wb-check"
+description = "Deterministic consistency rules over a Worldbuilder world."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+wb-core = { path = "../wb-core" }
+wb-store = { path = "../wb-store" }
+serde = { workspace = true }

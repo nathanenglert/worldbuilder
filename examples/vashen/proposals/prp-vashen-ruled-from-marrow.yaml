@@ -1,0 +1,17 @@
+# A plausible-sounding proposal that breaks two things at once. Kept in the example
+# world so the impact panel has something to warn about.
+id: prp_vashen_ruled_from_marrow
+title: Vashen ruled from Marrow before the conquest
+author: example
+note: >
+  Reads well, and is wrong twice over: Marrow does not exist until 0602~, and Vashen
+  already has a capital across the same years. The impact panel should show both before
+  anyone accepts it.
+status: pending
+changes:
+  - op: add_fact
+    entity: pol_vashen
+    attr: capital
+    value: place_marrow
+    from: "0450-01-01"
+    to: "0500-01-01"
