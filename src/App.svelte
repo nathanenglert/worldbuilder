@@ -6,6 +6,7 @@
     type Finding,
     type ProposalSummary,
     type Snapshot,
+    type Terrain,
     type WorldEvent,
     type WorldSummary,
   } from "./lib/api";
@@ -18,6 +19,8 @@
   let summary = $state<WorldSummary | null>(null);
   let events = $state<WorldEvent[]>([]);
   let snapshot = $state<Snapshot | null>(null);
+  let terrain = $state<Terrain | null>(null);
+  let backdrop = $state<string | null>(null);
   let findings = $state<Finding[]>([]);
   let proposals = $state<ProposalSummary[]>([]);
   let panel = $state<"inspector" | "checks" | "proposals">("inspector");
@@ -105,6 +108,14 @@
       day = start;
       lastBucket = bucketOf(start);
       await fetchSnapshot(start);
+
+      // Terrain last, and awaited separately: it is the one fetch that can take a second,
+      // and the timeline is usable long before the ground under it has been drawn. It is
+      // also fetched exactly once — nothing in it moves when the scrubber does.
+      terrain = null;
+      backdrop = null;
+      terrain = await api.terrain();
+      if (terrain) backdrop = await api.mapImage();
     } catch (e) {
       error = String(e);
     } finally {
@@ -241,7 +252,7 @@
   {/if}
 
   <div class="body">
-    <MapView {snapshot} {selected} onselect={select} />
+    <MapView {snapshot} {terrain} {backdrop} {selected} onselect={select} />
     {#if panel === "checks"}
       <Findings {findings} onjump={inspectFinding} onclose={() => (panel = "inspector")} />
     {:else if panel === "proposals"}
@@ -251,7 +262,7 @@
         onclose={() => (panel = "inspector")}
       />
     {:else}
-      <Inspector {snapshot} {selected} onselect={select} />
+      <Inspector {snapshot} {terrain} {selected} onselect={select} />
     {/if}
   </div>
 

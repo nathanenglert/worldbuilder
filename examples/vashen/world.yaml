@@ -23,6 +23,56 @@ calendar:
 # How far a `~` widens a date, in days, by the precision it was written at.
 fuzz: { year: 730, month: 30, day: 3 }
 
+# The map, and how to read it. Everything below `terrain` is a dial the writer owns;
+# what comes out of it — coastline, cells, rivers, biomes — is derived and cached under
+# .worldbuilder/, never committed, and rebuilt whenever one of these numbers moves.
+map:
+  image: map/vashen.png
+  terrain:
+    sea: { color: '#1E3A4C', tolerance: 0.16, flood_from_edge: true, min_blob_px: 40 }
+    detail: 0.62
+    cells: 2800
+    seed: 812
+
+    height:
+      sea_level: 0.32
+      # Broad, because this map is the interior corner of a continent: the sea is west
+      # and south, and the ground goes on rising for a long way east of the frame.
+      shelf: 1.35
+      roughness: 0.10
+      ranges:
+        # Two pieces, with a gap at Marrow's latitude. Marrow sits at [0.43, 0.40] and is
+        # "the last thing standing between Vashen and the Vale" — so it holds a pass, and
+        # the Silt uses the same pass to reach the sea.
+        - { name: The Marrow Wall, from: [0.470, 0.075], to: [0.492, 0.330], peak: 0.24, width: 0.045 }
+        - { name: The Marrow Wall, from: [0.508, 0.470], to: [0.545, 0.700], peak: 0.22, width: 0.045 }
+        # Hills, not peaks — but high enough to be where a river starts.
+        - { name: The Rimefall, from: [0.930, 0.130], to: [0.815, 0.660], peak: 0.36, width: 0.075 }
+        # A negative peak is a valley. Without one the ground rises smoothly away from the
+        # coast, so water in the east takes the short way to the southern sea and there is
+        # no Silt at all — the notes say there is one, so the writer draws its course.
+        - { name: The Silt, from: [0.640, 0.372], to: [0.470, 0.395], peak: -0.12, width: 0.030 }
+        - { name: The Silt, from: [0.470, 0.395], to: [0.150, 0.482], peak: -0.12, width: 0.030 }
+
+    climate:
+      # The equator is well south of the frame. This is a northern world: its months are
+      # Frostwane, Rimefall and Longdark, and nobody names a year's end after the dark
+      # unless the dark is the part they notice.
+      equator: 2.6
+      pole_distance: 3.8
+      equator_temp: 33
+      pole_temp: -8
+      lapse: 14
+      # A westerly off the sea. It is what makes the Vale the productive part and leaves
+      # the Vashen heartland a dry steppe behind the Marrow Wall — which is a reason for
+      # an empire to want somebody else's valley.
+      wind_bearing: 262
+      evaporation: 0.11
+      orographic: 0.55
+      base_rain: 0.045
+
+    rivers: { threshold: 0.015, max_lake_depth: 0.25 }
+
 types:
   - { name: noble, primitive: actor, description: A titled person of the great houses. }
   - { name: duchy, primitive: polity }

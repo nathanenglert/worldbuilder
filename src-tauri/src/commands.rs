@@ -19,7 +19,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    fn read<T>(&self, f: impl FnOnce(&World) -> T) -> Result<T, String> {
+    pub(crate) fn read<T>(&self, f: impl FnOnce(&World) -> T) -> Result<T, String> {
         let guard = self.world.lock().map_err(|_| "world state is poisoned".to_string())?;
         let world = guard.as_ref().ok_or_else(|| "no world is open".to_string())?;
         Ok(f(world))

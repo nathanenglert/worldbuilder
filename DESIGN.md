@@ -31,7 +31,7 @@ Everything else in this document amplifies that moment.
 | 3 | Time model | **Validity intervals, events as the authoring UI** |
 | 4 | Date precision | **Fuzzy-first with relative anchoring** |
 | 5 | AI | **Local MCP server, bring-your-own-agent, distributable skills** |
-| 6 | Storage | **Plain files as truth, SQLite as derived index** |
+| 6 | Storage | **Plain files as truth**; derived indexes only where measurement calls for one (§11) |
 | 7 | Manuscript | **Scene stubs + linked external prose (no editor)** |
 | 8 | Ontology | **Small structural core, user-extensible types** |
 | 9 | First slice | **Temporal spine end-to-end** |
@@ -163,6 +163,24 @@ Every stage optional, every stage overridable. The imported raster stays as a di
 8. **Rivers** — flow accumulation downhill across cells, merge into streams, carve channels.
 9. **Biomes** — temperature × precipitation via a Whittaker-style lookup.
 10. **Hand-authoring** — cities, borders, routes, regions drawn on top. This is where the human's world actually lives.
+
+### Built in slice 4 — `wb-terrain`
+
+Stages 2–9 all shipped, as eight pure functions in one crate that knows nothing about worlds, entities or dates. The whole pipeline is 85 ms on a 2,000 × 1,400 raster at 2,800 cells.
+
+**Terrain is a build product, not canon.** This is the decision the rest follows from. The *inputs* are a map image and about forty numbers in `world.yaml` — small, versioned, the writer's own. The *output* is a few thousand cells, cached in `.worldbuilder/` under a key that mixes the parameters' digest with the image's own bytes, and never committed. Delete it and it rebuilds; change a slider and the key moves.
+
+That split has a second consequence that matters more than the caching: **terrain does not change with the date.** So the political layer is refetched every time the scrubber crosses a change point, and terrain is fetched once per world and never again. The map is still a projection of the timeline; the ground it is projected onto is not.
+
+Three things worth recording:
+
+**A negative `peak` is a valley.** Ranges are authored as a line with a width and a height — `{ from, to, peak, width }`. Nothing needed adding to carve a river valley through a mountain gap: it is the same primitive with the sign flipped. The Vashen example uses both, and the Silt's course through the Marrow Wall is authored rather than hoped for.
+
+**The rain shadow does real work.** Rainfall is a single upwind-to-downwind sweep, valid because projecting the cells onto the wind vector gives a total order. In the example a westerly comes off the sea, drops 0.49 of the map's maximum on Corrath in the Vale, 0.24 on Marrow, and 0.08 on Hold Vashen behind the wall. The Vale is the productive part and the Vashen heartland is dry steppe — which is a reason for an empire to want somebody else's valley, and it came out of the physics rather than being written into a fact.
+
+**Segmentation has to survive a real export.** The example raster ships with antialiased coasts and fourteen hundred wrong-colour specks, because that is what an export looks like. `min_blob_px` eats them; without it the world acquires three hundred one-pixel islands.
+
+Stage 10 was already in place from slice 1: markers and polygons authored inline on the entity, in the same normalized coordinate space the pipeline works in, which is what lets the inspector say what the ground under a settlement is like without a second query.
 
 ---
 
@@ -394,12 +412,13 @@ Two methodology constraints on the UX:
 | Shell | Tauri v2 | Known quantity |
 | Backend | Rust | |
 | Frontend | TypeScript + React or Svelte | |
-| Map render | Leaflet `CRS.Simple` for slice 1 | Swap to MapLibre GL / deck.gl if scrub perf demands WebGL |
-| Geometry (Rust) | `geo`, `geo-types` | simplify, contains, intersects |
-| Geometry (TS) | `turf.js`, `topojson` | |
+| Map render | Hand-rolled SVG | Still holds at 2,800 terrain cells — see §11. Swap to WebGL if it stops holding |
+| Geometry (Rust) | ~~`geo`, `geo-types`~~ · `delaunator` | **Substituted.** Only Delaunay was worth a dependency; simplify, clip and point-in-polygon are a page each and had to be bit-for-bit stable |
+| Geometry (TS) | ~~`turf.js`, `topojson`~~ | **Not needed.** The frontend receives finished geometry and draws it; it computes none |
 | ~~Index~~ | ~~`rusqlite` + R\*Tree~~ | **Dropped.** Measured: queries are linear and sub-10 ms at 20,000 records. See §11 |
-| Vectorization | `imageproc` + marching squares | |
+| Vectorization | `image` (PNG only) + marching squares | Marching squares hand-rolled: the saddle cases have to be resolved the same way every time, and that is the whole algorithm |
 | MCP | `rmcp` 3.1 (official Rust SDK) | Sidecar binary over stdio — the app need not be running |
+| Randomness | hand-rolled SplitMix64 | Terrain is a cache key, and `rand` may change its algorithms between versions |
 | Git | `git2` (libgit2) | Branching histories |
 
 ---
@@ -411,7 +430,7 @@ Two methodology constraints on the UX:
 | **1 — Temporal spine** ✅ | Interval model, file storage, timeline scrubber, map with hand-drawn vector regions, fuzzy dates + relative anchoring, calendar engine |
 | **2 — Integrity** ✅ | Deterministic consistency engine ✅ · extensible ontology ✅ · proposal/draft layer ✅ |
 | **3 — Agent surface** ✅ | MCP server ✅ · tool surface ✅ · shipped skills ✅ · notes ingestion ✅ |
-| 4 — Map depth | Coastline vectorization, heightmap, climate, rivers, biomes |
+| **4 — Map depth** ✅ | Coastline vectorization ✅ · cell substrate ✅ · heightmap ✅ · climate ✅ · rivers ✅ · biomes ✅ |
 | 5 — Story | Scene stubs, external prose linking, surfaced/iceberg view |
 | 6 — Depth | Git branching UI, lineage/dynasty views, export & publish |
 
@@ -421,20 +440,25 @@ Slice 1 is deliberately the shortest path to the moment that proves the thesis �
 
 | Crate / step | State |
 |---|---|
-| `wb-core` — calendars, fuzzy dates, anchor resolution, Allen intervals | **done**, 55 tests |
+| `wb-core` — calendars, fuzzy dates, anchor resolution, Allen intervals | **done**, 56 tests |
 | `wb-store` — file format, loader, world assembly, time-indexed queries, search | **done**, 23 tests |
-| `wb-check` — six deterministic consistency rules | **done**, 16 tests |
-| `wb-propose` — review queue, impact analysis, applier | **done**, 15 tests |
-| `wb-mcp` — MCP server, 15 tools, notes ingestion | **done**, 31 tests |
+| `wb-check` — six deterministic consistency rules | **done**, 17 tests |
+| `wb-propose` — review queue, impact analysis, applier | **done**, 16 tests |
+| `wb-mcp` — MCP server, 17 tools, notes ingestion, terrain queries | **done**, 38 tests |
+| `wb-terrain` — the eight-stage map pipeline | **done**, 123 tests |
 | `skills/` — six shipped methodologies | **done** |
-| `examples/vashen` — a working seed world | **done**, 11 entities, 3 events, 2 proposals, 1 notes file |
+| `examples/vashen` — a working seed world | **done**, 11 entities, 3 events, 2 proposals, 1 notes file, 1 map |
 | Tauri commands — query surface for the frontend | **done**, 8 payload tests |
-| Svelte map, timeline, inspector, findings, review queue | **done** |
+| Svelte map with five terrain layers, timeline, inspector, findings, review queue | **done** |
 | SQLite index | **not needed** — see below |
 
-**152 tests** across the workspace. Clippy clean under `-D warnings`; `svelte-check` reports 0 errors and 0 warnings.
+**281 tests** across the workspace. Clippy clean under `-D warnings`; `svelte-check` reports 0 errors and 0 warnings.
 
-Slices 1, 2 and 3 are complete. **Slice 4 (map depth) is next** — and §12.7 applies to it more than to anything else in this document: the map pipeline is the rabbit hole that can swallow months.
+Slices 1 through 4 are complete. **Slice 5 (story) is next.**
+
+§12.7 was aimed squarely at slice 4 — the map pipeline is the rabbit hole that can swallow months. What kept it to a day was one rule held to throughout: **every stage is a pure function, and the whole thing is a build product.** No stage may consult a world, a date or an entity; no output is ever committed. That made the eight stages independently implementable and independently testable, and it made the tuning loop an ASCII plot in a terminal rather than a round trip through the UI.
+
+The part that did burn time was not the algorithms. It was the *parameters*: the first run produced a map that was 29% cold desert with a town of nine thousand sitting in one, and 63 rivers. Every stage was correct. Nothing but the dials was wrong — which is the strongest argument for keeping them in the writer's own `world.yaml` where they can be argued with.
 
 Two Slice-1 substitutions, both reversible:
 
@@ -468,6 +492,25 @@ Its detail panel carried the author byline, the note citing the source file, the
 
 The example world was restored afterwards, and the notes deliberately left **un-ingested**: `world-from-notes` should have real work to do the first time someone runs it.
 
+### Slice 4 verified in the running app
+
+The five terrain layers, the imported raster underneath them, and the political layer on top — all in the shipped example, driven through [tauri-pilot](https://github.com/mpiton/tauri-pilot).
+
+| What it shows | What it proves |
+|---|---|
+| **Biome** — forest on the west coast, grassland through the middle, cold desert in the east | The Whittaker table and the climate feeding it agree with each other |
+| **Rain** — teal along the west and south coasts, sand in the eastern interior | The rain shadow. One picture, and the Vashen Empire has a motive |
+| **Height** — the Marrow Wall in two pieces with a gap at Marrow's latitude, the Silt running through it | Authored relief, including the negative-peak valley, lands where it was drawn |
+| **Imported map** — the writer's own raster, with the traced coastline stroked over it | §4's claim: the raster stays as a display layer, the vectors are what is queryable |
+
+Selecting Corrath reports its ground without a second query: *temperate forest · on a river · 9.8 °C · 49% of the wettest*. Terrain does not change with the date, so the join is computed once alongside the terrain itself.
+
+Three bugs the work turned up, all found by looking at the map rather than by a test:
+
+- **The first raster was too smooth to vectorize.** Its fBm scaled both the lattice size and the coordinates by the octave, so every octave sat on top of the others and the coastline had detail at exactly one scale. The detail slider had nothing to remove.
+- **All sea was "shallows".** The shelf falloff is broad by design on a map that is mostly interior, and the same parameter governs both sides of the shore — so no sea cell was ever far enough from land to be deep. Left as it is: on a regional map, a shelf sea is the correct answer.
+- **The Silt pooled into a lake short of the coast.** The authored valley stopped inland of the shore, and the flood filled the gap. Extending it to the firth fixed it — but the mere left in its upper reach is real: the interior there is flat, because the western and southern coasts are equidistant and the falloff has no gradient to give.
+
 ### On SQLite: measured, and dropped
 
 Slice 1 deferred the index with a promise to revisit once there were real query shapes to index *for*. Slice 3 produced them, so it was measured rather than argued about. `cargo run --release -p wb-mcp --example scale` generates worlds shaped like real ones — places changing hands at events, actors with parentage, fuzzy lifespans — and times what the server actually pays:
@@ -496,11 +539,11 @@ If either ever bites, the answer is still not SQLite. Launch parsing wants a cac
 
 1. **Polygon morphing** — cross-fade v1, but true border morphing needs vertex correspondence. Unsolved.
 2. **Shared-border topology** — TopoJSON arcs are the right call, but authoring UX for shared edges is genuinely hard.
-3. **Scrub performance** — change-point precomputation should hold, but needs validation at thousands of features.
+3. **Scrub performance** — change-point precomputation holds, and the terrain layer costs nothing extra because it is fetched once and never refetched. Still unvalidated at thousands of *time-varying* features.
 4. **Timeline scale range** — 4,000 years of history and a six-week story on one axis. Likely needs multi-resolution zoom (eras → centuries → years → days), a story-window bookmark, and an event-density minimap.
 5. **Constraint solver complexity** — fuzzy anchors form a DAG needing cycle detection and interval propagation. Keep it simple; resist building a general temporal reasoner.
 6. **Blank page** — needs seed worlds and templates, or slice 1 demos to an empty screen.
-7. **Scope discipline** — every section above is a product on its own. The map pipeline in particular is a rabbit hole that can swallow months.
+7. **Scope discipline** — every section above is a product on its own. ~~The map pipeline in particular is a rabbit hole that can swallow months.~~ **Survived** (§11): pure stages, a build-product output, and an ASCII plot to tune against. The rabbit hole turned out to be the parameters, not the code.
 
 ---
 

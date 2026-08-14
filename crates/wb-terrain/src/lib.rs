@@ -59,6 +59,9 @@ pub struct Terrain {
     pub source_width: u32,
     pub source_height: u32,
     pub aspect: f64,
+    /// The shore, on the `0.0..=1.0` height scale. Carried rather than left implicit
+    /// because every consumer needs it and nobody should recover it from the data.
+    pub sea_level: f32,
     /// The coastline, simplified. Largest ring first.
     pub coast: Vec<Ring>,
     pub cells: CellField,
@@ -223,6 +226,7 @@ pub fn build(img: &image::RgbaImage, p: &TerrainParams) -> Result<Terrain> {
         source_width: img.width(),
         source_height: img.height(),
         aspect: m.aspect,
+        sea_level: p.height.sea_level,
         coast,
         cells: CellField {
             sites: sub.sites,

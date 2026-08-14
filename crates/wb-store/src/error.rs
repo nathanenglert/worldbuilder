@@ -25,6 +25,16 @@ pub enum Error {
     #[error("no world.yaml in {}", root.display())]
     NoWorldFile { root: PathBuf },
 
+    #[error("the map image {} could not be read: {source}", path.display())]
+    MapImage {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("the terrain could not be built: {0}")]
+    Terrain(String),
+
     #[error(transparent)]
     Core(#[from] wb_core::Error),
 }

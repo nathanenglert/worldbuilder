@@ -9,7 +9,7 @@ use wb_core::{
 };
 
 use crate::error::{Error, Result};
-use crate::model::{Entity, Event, Fact, Primitive, Rules, TypeDef, Value, WorldDef};
+use crate::model::{Entity, Event, Fact, MapSpec, Primitive, Rules, TypeDef, Value, WorldDef};
 
 /// One fact, as it stands at a particular moment.
 #[derive(Debug, Clone, Copy)]
@@ -62,6 +62,8 @@ pub struct World {
     pub calendar: Calendar,
     pub fuzz: Fuzz,
     pub rules: Rules,
+    /// The map image and its pipeline settings, if this world has one.
+    pub map: Option<MapSpec>,
     pub types: BTreeMap<String, TypeDef>,
     pub entities: BTreeMap<String, Entity>,
     pub events: BTreeMap<String, Event>,
@@ -186,6 +188,7 @@ impl World {
             calendar: def.calendar,
             fuzz: def.fuzz,
             rules: def.rules,
+            map: def.map,
             types,
             entities: entity_map,
             events: event_map,
@@ -204,6 +207,7 @@ impl World {
             name: self.name.clone(),
             calendar: self.calendar.clone(),
             fuzz: self.fuzz,
+            map: self.map.clone(),
             types: self.types.values().cloned().collect(),
             rules: self.rules.clone(),
         }

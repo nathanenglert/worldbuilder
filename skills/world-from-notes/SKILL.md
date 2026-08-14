@@ -63,6 +63,36 @@ Work one note, or one coherent section, at a time. For each:
 A chapter of notes is one decision a writer can say yes to. Forty proposals is forty
 decisions and they will reject the lot rather than work through it.
 
+## Put it somewhere real
+
+Notes place things relative to other things — *upriver from Marrow*, *on the coast north
+of the Vale*, *in the hills*. A `marker` is two numbers. Turning the first into the
+second is not guesswork if the world has a map:
+
+```
+find_sites      → cells matching the ground: on_river, coastal, biome, near, within
+describe_place  → what the ground is like at a point, or under an existing record
+```
+
+`find_sites(on_river: true, near: "place_marrow", within: 0.12)` answers *upriver from
+Marrow* with candidates that are actually on the river. Check the one you pick with
+`describe_place` and say in the proposal note what made it right — "on the Silt, 0.08
+east of Marrow, temperate forest" is a sentence the writer can agree or disagree with.
+A coordinate on its own is not.
+
+Two cautions:
+
+- **The ground is not canon.** It is derived from the writer's map image and the
+  settings in `world.yaml`. Never propose a change *to* terrain; if the map is wrong,
+  say so in words.
+- **"Upriver" still needs you.** `find_sites` knows which cells a river runs through, not
+  which way is upstream of what. Compare elevations, or check the candidate against the
+  places the notes already anchor it to.
+
+If the world has no map, place nothing. Omit the marker and say you did — an unplaced
+record is honest, and a settlement dropped in the sea is a thing the writer has to
+notice before they can fix it.
+
 ## Titles and notes on the proposal
 
 The `title` is the claim, not the mechanism: *"House Ferrow holds Greyford, and has

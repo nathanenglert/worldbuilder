@@ -13,6 +13,7 @@ use serde::Serialize;
 use wb_store::World;
 
 use crate::dto::primitive_name;
+use crate::terrain::TerrainSummary;
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct MonthDto {
@@ -113,6 +114,14 @@ pub struct WorldOverview {
     pub gestation_days: i64,
     /// How many times the world was reloaded because its files changed under the server.
     pub reloads: u64,
+    /// The ground the timeline is projected onto, when this world has a map. Absent is
+    /// normal — a world with no map image is still a world.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terrain: Option<TerrainSummary>,
+    /// Set when the world declares a map but the pipeline could not run it. Nearly always
+    /// a wrong sea colour or a missing image.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terrain_error: Option<String>,
 }
 
 pub const DATE_SYNTAX: &[SyntaxDto] = &[
@@ -138,6 +147,14 @@ pub const DATE_SYNTAX: &[SyntaxDto] = &[
 
 impl WorldOverview {
     pub fn of(world: &World, pending: usize, reloads: u64) -> Self {
+        // Built here rather than behind its own tool so a cold agent learns the world has
+        // ground the first time it orients, instead of after placing a city in the sea.
+        let (terrain, terrain_error) = match world.terrain() {
+            Ok(Some(t)) => (Some(TerrainSummary::of(world, &t)), None),
+            Ok(None) => (None, None),
+            Err(e) => (None, Some(e.to_string())),
+        };
+
         let cal = &world.calendar;
         let report = wb_check::check(world);
         let (definite, possible) = report.counts();
@@ -239,6 +256,8 @@ impl WorldOverview {
             span,
             gestation_days: world.rules.gestation_days,
             reloads,
+            terrain,
+            terrain_error,
         }
     }
 }

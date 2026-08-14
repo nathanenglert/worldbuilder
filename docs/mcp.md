@@ -81,6 +81,8 @@ tool does.
 | `query_entities` | Filter by type, name, geometry, or existence at a date |
 | `timeline` | Events in a window |
 | `territory_at` | Map geometry with live ownership claims |
+| `describe_place` | What the ground is like at a point, or under a record with a marker |
+| `find_sites` | Candidate locations matching the ground — on a river, coastal, a biome, near somewhere |
 | `lineage` | Ancestors and descendants with lifespans |
 | `check_consistency` | Every deterministic contradiction, with its certainty |
 | `search` | Ranked full-text over ids, names, types, fact values, and prose |
@@ -104,6 +106,26 @@ access needed.
 Reads are scoped to that folder, checked *after* canonicalization, so a symlink pointing
 out of it is refused as firmly as `../../.ssh/id_rsa` is. This server reads your notes,
 not your disk.
+
+## The ground
+
+If your world declares a `map:` in `world.yaml`, `describe_world` comes back with a
+terrain summary too, and two more tools open up.
+
+The point of them is placement. Notes place things relative to other things — *upriver
+from Marrow*, *on the coast north of the Vale* — and a `marker` is two numbers.
+`find_sites(on_river: true, near: "place_marrow", within: 0.12)` turns the first into
+candidates for the second, each reported with its biome, its rainfall, and how far it is
+from the anchor. `describe_place` checks one.
+
+Two things the payloads say out loud, because both are easy to get wrong:
+
+- **Terrain is not canon.** It is derived from your map image and the settings under
+  `map.terrain`, cached in `.worldbuilder/`, and rebuilt whenever either moves. There is
+  no way to propose a change to it, by design — if the map is wrong, the map is what
+  changes.
+- **Coordinates are normalized `0..1` over the image, and `y` increases southward.**
+  North is *smaller* `y`. Getting that backwards mirrors every placement.
 
 ## Skills
 

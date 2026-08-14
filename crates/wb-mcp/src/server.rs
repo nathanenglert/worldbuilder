@@ -29,6 +29,7 @@ use crate::dto::{
 use crate::handle::WorldHandle;
 use crate::notes;
 use crate::overview::WorldOverview;
+use crate::terrain::{PlaceOut, SiteOut};
 
 /// Enough to answer any single question without flooding a context window. Every tool
 /// that caps its output says so in the payload.
@@ -387,6 +388,45 @@ pub struct ProposalOut {
     pub error: Option<String>,
 }
 
+/// The terrain, or a message saying why there is none. Read through `World`, which serves
+/// it from the cache under `.worldbuilder/` — the pipeline itself runs only after the map
+/// or its settings have changed.
+fn terrain_of(world: &World) -> Result<wb_terrain::Terrain, String> {
+    match world.terrain() {
+        Ok(Some(t)) => Ok(t),
+        Ok(None) => Err("this world declares no `map:` in world.yaml, so it has no \
+                         terrain. Add one, or work from the records alone."
+            .to_string()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct PlaceArgs {
+    /// A record with a `marker`. Give this or `x`/`y`, not both.
+    pub entity: Option<String>,
+    /// Normalized 0..1 across the map image.
+    pub x: Option<f64>,
+    /// Normalized 0..1 down the map image — y increases southward.
+    pub y: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SiteArgs {
+    /// Only cells a river runs through.
+    pub on_river: Option<bool>,
+    /// Only cells with sea next to them.
+    pub coastal: Option<bool>,
+    /// Only this biome. Use the labels `describe_world` reports, e.g. "temperate forest".
+    pub biome: Option<String>,
+    /// Only within `within` of this record's marker, and sorted by how close.
+    pub near: Option<String>,
+    /// Distance as a fraction of the map's width. Defaults to 0.25.
+    pub within: Option<f64>,
+    /// Defaults to 20.
+    pub limit: Option<usize>,
+}
+
 // ------------------------------------------------------------------ tools
 
 #[tool_router(router = tool_router)]
@@ -436,6 +476,125 @@ impl WorldServer {
                 omitted: (matched > limit).then(|| matched - limit),
                 unchanged_from: points.iter().rev().find(|p| p.0 <= day.0).map(|d| d.0),
                 unchanged_until: points.iter().find(|p| p.0 > day.0).map(|d| d.0),
+            }))
+        })
+    }
+
+    /// What the ground is like at a point, or under a record that has a marker.
+    ///
+    /// Terrain does not change with the date, so this takes none. Ask before placing
+    /// anything: a river town on a ridge is a mistake a reader notices and the writer has
+    /// to undo by hand.
+    #[tool(annotations(title = "Describe place", read_only_hint = true))]
+    async fn describe_place(
+        &self,
+        Parameters(args): Parameters<PlaceArgs>,
+    ) -> Result<Json<PlaceOut>, String> {
+        self.read(|world| {
+            let t = terrain_of(world)?;
+            let (at, entity) = match (&args.entity, args.x, args.y) {
+                (Some(id), None, None) => {
+                    let e = world.entities.get(id).ok_or_else(|| unknown_id(world, id))?;
+                    let marker = e.marker.ok_or_else(|| {
+                        format!("{id} has no `marker`, so there is no point to describe")
+                    })?;
+                    (marker, Some(id.clone()))
+                }
+                (None, Some(x), Some(y)) => ([x, y], None),
+                _ => {
+                    return Err("give either `entity`, or both `x` and `y` — normalized \
+                                0..1 over the map image, with y increasing southward"
+                        .to_string());
+                }
+            };
+
+            PlaceOut::of(world, &t, at, entity)
+                .map(Json)
+                .ok_or_else(|| "this world's terrain has no cells".to_string())
+        })
+    }
+
+    /// Candidate locations that match a description of the ground — on a river, coastal,
+    /// a particular biome, near somewhere.
+    ///
+    /// This is how a sentence in someone's notes becomes a coordinate. "Greyford is
+    /// upriver from Marrow on the Silt" is not a position until something has checked
+    /// which cells are actually on a river and how far from Marrow they are.
+    #[tool(annotations(title = "Find sites", read_only_hint = true))]
+    async fn find_sites(
+        &self,
+        Parameters(args): Parameters<SiteArgs>,
+    ) -> Result<Json<ListOut<SiteOut>>, String> {
+        self.read(|world| {
+            let t = terrain_of(world)?;
+            let limit = args.limit.unwrap_or(20).min(DEFAULT_LIMIT);
+
+            let anchor = match &args.near {
+                None => None,
+                Some(id) => {
+                    let e = world.entities.get(id).ok_or_else(|| unknown_id(world, id))?;
+                    Some(e.marker.ok_or_else(|| format!("{id} has no `marker` to measure from"))?)
+                }
+            };
+            let within = args.within.unwrap_or(0.25);
+
+            let on_river: Vec<bool> = {
+                let mut flags = vec![false; t.cells.len()];
+                for river in &t.rivers {
+                    for c in &river.cells {
+                        flags[*c as usize] = true;
+                    }
+                }
+                flags
+            };
+
+            let mut hits: Vec<(f64, SiteOut)> = Vec::new();
+            for (i, &has_river) in on_river.iter().enumerate() {
+                if !t.cells.is_land[i] || t.cells.lake[i] {
+                    continue;
+                }
+                let site = t.cells.sites[i];
+                let coastal = t.cells.neighbors[i].iter().any(|n| !t.cells.is_land[*n as usize]);
+                let reach = anchor.map(|a| crate::terrain::distance(&t, a, site));
+
+                let biome = t.cells.biome[i].label();
+                let wanted = |flag: Option<bool>, actual: bool| flag != Some(true) || actual;
+                let matches = wanted(args.on_river, has_river)
+                    && wanted(args.coastal, coastal)
+                    && args.biome.as_ref().is_none_or(|b| b.eq_ignore_ascii_case(biome))
+                    && reach.is_none_or(|d| d <= within);
+                if !matches {
+                    continue;
+                }
+
+                hits.push((
+                    reach.unwrap_or(0.0),
+                    SiteOut {
+                        at: [
+                            (site[0] * 10_000.0).round() / 10_000.0,
+                            (site[1] * 10_000.0).round() / 10_000.0,
+                        ],
+                        from_anchor: reach.map(|d| (d * 1000.0).round() / 1000.0),
+                        biome: biome.into(),
+                        elevation: crate::terrain::relief(&t, t.cells.height[i]),
+                        temperature_c: (t.cells.temperature[i] * 10.0).round() / 10.0,
+                        rainfall: (t.cells.precipitation[i] * 100.0).round() / 100.0,
+                        on_river: has_river,
+                        coastal,
+                        near: crate::terrain::nearby(world, &t, site, 2),
+                    },
+                ));
+            }
+
+            // Nearest first when an anchor was given; otherwise the mesh's own order,
+            // which is stable but arbitrary — so say how many were dropped either way.
+            hits.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let matched = hits.len();
+            let items: Vec<SiteOut> = hits.into_iter().take(limit).map(|(_, s)| s).collect();
+            Ok(Json(ListOut {
+                matched,
+                omitted: (matched > limit).then(|| matched - limit),
+                items,
             }))
         })
     }

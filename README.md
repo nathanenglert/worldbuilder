@@ -20,6 +20,12 @@ the siege moves it. `?` means nobody knows, and is a perfectly good answer. A bo
 between two claims nobody dated is drawn hatched and dashed rather than assigned to
 whoever the code happened to check first.
 
+**The ground is derived, and it is not canon.** Point Worldbuilder at your map image and
+it traces the coastline, meshes it, and works out heights, climate, rivers and biomes —
+about 85 ms for a 2,000-pixel map. The inputs are your image and forty numbers in
+`world.yaml`; the output is a cache you can delete. And because terrain does not change
+with the date, the scrubber never pays for it.
+
 **Contradictions are found deterministically, offline.** "Aldric died in 811 but attends
 the Council of 814" is an interval containment test, not a job for a model. Six rules
 cover existence violations, anachronisms, conflicting facts, orphan references,
@@ -43,7 +49,9 @@ It opens `examples/vashen`: eleven records, three events, a border contested at 
 dated only to the month, and one open question the consistency engine will not resolve
 for you.
 
-Jump to `@evt_siege_of_marrow` and watch the Vale go hatched.
+Jump to `@evt_siege_of_marrow` and watch the Vale go hatched. Then switch the terrain
+layer to **rain** and see why the Vashen Empire wants the Vale at all. Then switch the terrain
+layer to **rain** and look at why the Vashen Empire wants the Vale at all.
 
 ## Layout
 
@@ -52,21 +60,23 @@ Jump to `@evt_siege_of_marrow` and watch the Vale go hatched.
 | [`crates/wb-core`](crates/wb-core) | Calendars, fuzzy dates, anchor resolution, Allen's interval algebra |
 | [`crates/wb-store`](crates/wb-store) | The file format, the loader, and the time-indexed queries |
 | [`crates/wb-check`](crates/wb-check) | Deterministic consistency rules |
+| [`crates/wb-terrain`](crates/wb-terrain) | The map pipeline — coastline, cells, height, climate, rivers, biomes |
 | [`crates/wb-propose`](crates/wb-propose) | The review queue, and impact analysis |
-| [`crates/wb-mcp`](crates/wb-mcp) | The agent surface — 15 tools, none of which reach canon |
+| [`crates/wb-mcp`](crates/wb-mcp) | The agent surface — 17 tools, none of which reach canon |
 | [`skills/`](skills) | Worldbuilding methodology, shipped separately from the app |
 | [`src/`](src) | Svelte frontend: map, timeline, inspector, findings, queue |
 | [`DESIGN.md`](DESIGN.md) | The design brief, and every decision that changed while building |
 
 ```sh
-cargo test --workspace                      # 152 tests
+cargo test --workspace                      # 281 tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p worldbuilder --example check   # consistency report for the example world
 cargo run --release -p wb-mcp --example scale   # what a 20,000-record world costs
+cargo run --release -p worldbuilder --example terrain  # the map pipeline, plotted in ASCII
 ```
 
 ## Status
 
-Slices 1–3 of six are complete: the temporal spine, the integrity layer, and the agent
-surface. Next is map depth — coastline vectorization, heightmap, climate, rivers. See
-the [roadmap](DESIGN.md#11-roadmap).
+Slices 1–4 of six are complete: the temporal spine, the integrity layer, the agent
+surface, and map depth. Next is story — scene stubs, external prose linking, and the
+surfaced/iceberg view. See the [roadmap](DESIGN.md#11-roadmap).

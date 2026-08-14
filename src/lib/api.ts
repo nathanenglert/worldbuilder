@@ -104,6 +104,74 @@ export interface ProposalDetail extends ProposalSummary {
   error: string | null;
 }
 
+/** A closed loop of the coastline, flattened to `[x0, y0, x1, y1, …]`. */
+export interface Ring {
+  points: number[];
+  is_hole: boolean;
+}
+
+export interface River {
+  points: number[];
+  flux: number[];
+  order: number;
+  mouth: "sea" | "lake" | "sink";
+}
+
+export interface BiomeStyle {
+  label: string;
+  color: string;
+  water: boolean;
+}
+
+/** What the ground under one entity is like. Terrain does not change with time, so this
+ *  is computed once and never refetched. */
+export interface Place {
+  biome: string;
+  color: string;
+  /** `0` at the shore, `1` at the highest point on the map. */
+  elevation: number;
+  temperature: number;
+  precipitation: number;
+  on_river: boolean;
+  coastal: boolean;
+}
+
+/**
+ * The substrate the timeline is projected onto. Fetched once per world — unlike a
+ * snapshot, nothing in here moves when the scrubber does.
+ */
+export interface Terrain {
+  aspect: number;
+  sea_level: number;
+  coast: Ring[];
+  /** One flat loop per cell, index-aligned with every array below. */
+  cells: number[][];
+  is_land: boolean[];
+  lake: boolean[];
+  height: number[];
+  temperature: number[];
+  precipitation: number[];
+  /** Index into `palette`. */
+  biome: number[];
+  palette: BiomeStyle[];
+  rivers: River[];
+  places: Record<string, Place>;
+  summary: {
+    land_fraction: number;
+    cells: number;
+    islands: number;
+    rivers: number;
+    lake_cells: number;
+    coast_points: number;
+    temperature_min: number;
+    temperature_max: number;
+    biomes: [string, number][];
+  };
+}
+
+/** Which quantity the terrain layer is shaded by. */
+export type Layer = "biome" | "height" | "temperature" | "precipitation" | "none";
+
 /** False when the page is open in a plain browser rather than the desktop shell. */
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -111,6 +179,8 @@ export const api = {
   openWorld: (path: string) => invoke<WorldSummary>("open_world", { path }),
   examplePath: () => invoke<string | null>("example_world_path"),
   snapshot: (day: number) => invoke<Snapshot>("snapshot", { day }),
+  terrain: () => invoke<Terrain | null>("terrain"),
+  mapImage: () => invoke<string | null>("map_image"),
   timeline: () => invoke<WorldEvent[]>("timeline"),
   resolveExpr: (expr: string) => invoke<number | null>("resolve_expr", { expr }),
   formatDay: (day: number) => invoke<string>("format_day", { day }),

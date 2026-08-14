@@ -15,8 +15,10 @@ use std::sync::Mutex;
 
 use wb_store::{World, load};
 
-/// Folders whose contents can change what a query answers.
-const WATCHED: [&str; 3] = ["entities", "events", "proposals"];
+/// Folders whose contents can change what a query answers. `map` is here because a
+/// redrawn coastline changes what the ground under a settlement is, and `world.yaml`
+/// alone would not notice.
+const WATCHED: [&str; 4] = ["entities", "events", "proposals", "map"];
 
 #[derive(Debug)]
 pub struct WorldHandle {

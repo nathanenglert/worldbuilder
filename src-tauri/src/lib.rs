@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod terrain;
 
 pub fn run() {
     #[allow(unused_mut)]
@@ -16,6 +17,8 @@ pub fn run() {
             commands::open_world,
             commands::example_world_path,
             commands::snapshot,
+            terrain::terrain,
+            terrain::map_image,
             commands::timeline,
             commands::resolve_expr,
             commands::format_day,

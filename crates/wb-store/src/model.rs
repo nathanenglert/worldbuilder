@@ -27,6 +27,17 @@ pub enum Primitive {
     Thing,
 }
 
+/// Stage 1 of the map pipeline, as the writer states it: here is my map, here is how to
+/// read it. Everything downstream of `terrain` is derived and cached.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MapSpec {
+    /// The imported raster, relative to the world root.
+    pub image: PathBuf,
+    #[serde(default)]
+    pub terrain: wb_terrain::TerrainParams,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TypeDef {
     pub name: String,
@@ -185,6 +196,10 @@ impl Rules {
 pub struct WorldDef {
     pub name: String,
     pub calendar: Calendar,
+    /// The map image and how to turn it into terrain. Absent is fine — a world with no
+    /// map is still a world, and every reader has to cope with that anyway.
+    #[serde(default)]
+    pub map: Option<MapSpec>,
     #[serde(default)]
     pub fuzz: Fuzz,
     #[serde(default)]

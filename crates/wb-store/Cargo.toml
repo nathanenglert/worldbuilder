@@ -8,6 +8,8 @@ rust-version.workspace = true
 
 [dependencies]
 wb-core = { path = "../wb-core" }
+wb-terrain = { path = "../wb-terrain" }
 serde = { workspace = true }
 thiserror = { workspace = true }
 serde_yaml_bw = "2"
+serde_json = "1"

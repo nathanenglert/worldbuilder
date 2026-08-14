@@ -101,8 +101,12 @@ pub struct HeightParams {
     pub shelf: f64,
     /// Amplitude of the fractal noise laid over the falloff.
     pub roughness: f64,
-    /// Hand-placed mountains. This is the "painted by hand" half of stage 6 — a writer
-    /// who knows where the range goes says so, rather than hunting for a seed.
+    /// Hand-placed relief. This is the "painted by hand" half of stage 6 — a writer who
+    /// knows where the range goes says so, rather than hunting for a seed.
+    ///
+    /// A negative `peak` is a valley, and the same primitive covers both: a river's course
+    /// through a mountain gap is a line with a width and a depth, exactly as the range it
+    /// cuts through is a line with a width and a height.
     pub ranges: Vec<Range>,
 }
 
@@ -127,7 +131,7 @@ impl HeightParams {
     }
 }
 
-/// A mountain range, drawn as a line with a width — the way anyone sketches one.
+/// Relief along a line, with a width — the way anyone sketches a range or a river valley.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Range {
@@ -136,7 +140,8 @@ pub struct Range {
     /// Normalized map coordinates, the same space as an entity's `marker`.
     pub from: [f64; 2],
     pub to: [f64; 2],
-    /// Height at the ridge line, on the same `0.0..=1.0` scale as [`HeightParams`].
+    /// How much the ground rises at the centre line, on the same `0.0..=1.0` scale as
+    /// [`HeightParams`]. Negative carves a valley instead of raising a ridge.
     pub peak: f32,
     /// Half-width of the uplift, in normalized units.
     pub width: f64,
@@ -294,7 +299,8 @@ mod tests {
     fn a_misspelt_field_is_an_error_rather_than_a_silent_default() {
         // The failure mode this prevents: `sealevel: 0.5` quietly doing nothing, and the
         // writer concluding the slider is broken.
-        let err = serde_yaml_bw::from_str::<TerrainParams>("height: { sealevel: 0.5 }").unwrap_err();
+        let err =
+            serde_yaml_bw::from_str::<TerrainParams>("height: { sealevel: 0.5 }").unwrap_err();
         assert!(err.to_string().contains("sealevel"), "{err}");
     }
 

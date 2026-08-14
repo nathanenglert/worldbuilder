@@ -791,3 +791,102 @@ async fn the_server_notices_the_world_changing_under_it() {
     let found = agent.call("get_entity", json!({ "id": "place_greyford" })).await;
     assert_eq!(found["name"], "Greyford");
 }
+
+#[tokio::test]
+async fn the_ground_under_a_settlement_is_reported_without_a_date() {
+    let agent = Agent::example().await;
+    let out = agent.call("describe_place", json!({ "entity": "place_corrath_city" })).await;
+
+    assert_eq!(out["entity"], "place_corrath_city");
+    assert_eq!(out["is_land"], true, "a city in the sea would be a placement bug");
+    assert_eq!(out["biome"], "temperate forest");
+    assert_eq!(out["on_river"], true, "Corrath sits on the Silt");
+
+    // The point it answered about is the record's own marker, and the nearest named
+    // record to a city is itself — which is how a reader checks the answer is not adrift.
+    assert_eq!(out["at"], json!([0.25, 0.45]));
+    assert_eq!(out["near"][0]["id"], "place_corrath_city");
+    assert_eq!(out["near"][0]["distance"], 0.0);
+}
+
+#[tokio::test]
+async fn the_rain_shadow_is_visible_through_the_tool_surface() {
+    let agent = Agent::example().await;
+    let rain = async |id| {
+        agent.call("describe_place", json!({ "entity": id })).await["rainfall"].as_f64().unwrap()
+    };
+
+    // West of the Marrow Wall, in the gap, and behind it. This is the whole reason the
+    // Vale is worth taking, and it comes out of the climate rather than out of a fact.
+    let (vale, gap, steppe) = (
+        rain("place_corrath_city").await,
+        rain("place_marrow").await,
+        rain("place_vashen_seat").await,
+    );
+    assert!(vale > gap, "the Vale ({vale}) should be wetter than Marrow ({gap})");
+    assert!(gap > steppe, "Marrow ({gap}) should be wetter than the heartland ({steppe})");
+}
+
+#[tokio::test]
+async fn a_place_needs_either_a_record_or_a_pair_of_coordinates() {
+    let agent = Agent::example().await;
+
+    let both = agent.refuse("describe_place", json!({ "entity": "place_marrow", "x": 0.5 })).await;
+    assert!(both.contains("either"), "unhelpful: {both}");
+
+    // A polity has no marker; saying so beats returning the terrain at [0, 0].
+    let no_marker = agent.refuse("describe_place", json!({ "entity": "pol_corrath" })).await;
+    assert!(no_marker.contains("marker"), "unhelpful: {no_marker}");
+}
+
+#[tokio::test]
+async fn sites_can_be_filtered_by_the_ground_and_ranked_by_distance() {
+    let agent = Agent::example().await;
+    let out = agent
+        .call("find_sites", json!({ "on_river": true, "near": "place_marrow", "within": 0.2 }))
+        .await;
+
+    let items = out["items"].as_array().expect("a list");
+    assert!(!items.is_empty(), "the Silt runs past Marrow, so something is upriver of it");
+    assert!(out["matched"].as_u64().unwrap() >= items.len() as u64);
+
+    for site in items {
+        assert_eq!(site["on_river"], true, "the filter is a filter, not a preference");
+        assert!(site["from_anchor"].as_f64().unwrap() <= 0.2, "`within` is a bound, not a hint");
+    }
+
+    // Nearest first, so "upriver from Marrow" can be answered by reading down the list —
+    // and the distance is in the payload, so the ranking does not have to be taken on trust.
+    let reach = |s: &Value| s["from_anchor"].as_f64().unwrap();
+    assert!(
+        items.windows(2).all(|w| reach(&w[0]) <= reach(&w[1]) + 1e-9),
+        "candidates should come back nearest first"
+    );
+}
+
+#[tokio::test]
+async fn an_impossible_site_returns_nothing_rather_than_the_nearest_thing() {
+    let agent = Agent::example().await;
+    let out = agent.call("find_sites", json!({ "biome": "rainforest", "coastal": true })).await;
+
+    assert_eq!(out["matched"], 0, "this world has no tropics; inventing one would be worse");
+    assert!(out["items"].as_array().unwrap().is_empty());
+
+    // With no anchor there is nothing to be near, and the field is absent rather than zero.
+    let anywhere = agent.call("find_sites", json!({ "coastal": true, "limit": 1 })).await;
+    assert!(anywhere["items"][0].get("from_anchor").is_none());
+}
+
+#[tokio::test]
+async fn orientation_carries_the_ground_and_says_it_is_not_canon() {
+    let agent = Agent::example().await;
+    let terrain = &agent.call("describe_world", json!({})).await["terrain"];
+
+    assert_eq!(terrain["source"], "map/vashen.png");
+    assert_eq!(terrain["source_pixels"], json!([2000, 1400]));
+    assert!(terrain["rivers"].as_u64().unwrap() > 0);
+    assert!(
+        terrain["note"].as_str().unwrap().contains("not canon"),
+        "an agent that thinks it can propose against terrain will waste a proposal"
+    );
+}

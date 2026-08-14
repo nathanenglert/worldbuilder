@@ -9,7 +9,9 @@
 //! my-world/
 //! ├── world.yaml            calendar, fuzz defaults, type declarations
 //! ├── entities/**/*.md      actors, polities, places, things
-//! └── events/**/*.yaml      dated occurrences that facts anchor to
+//! ├── events/**/*.yaml      dated occurrences that facts anchor to
+//! ├── map/                  the imported raster, if there is one
+//! └── .worldbuilder/        derived terrain — a build product, never committed
 //! ```
 //!
 //! Events deliberately carry no "effects" block. Facts own their own validity and
@@ -20,9 +22,10 @@ pub mod error;
 pub mod frontmatter;
 pub mod load;
 pub mod model;
+pub mod terrain;
 pub mod world;
 
 pub use error::{Error, Result};
 pub use load::load;
-pub use model::{Entity, Event, Fact, Primitive, Rules, Span, TypeDef, Value, WorldDef};
+pub use model::{Entity, Event, Fact, MapSpec, Primitive, Rules, Span, TypeDef, Value, WorldDef};
 pub use world::{EntityView, FactAt, Hit, Snapshot, World};

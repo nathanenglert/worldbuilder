@@ -78,6 +78,7 @@ fn def() -> WorldDef {
         name: "Test".into(),
         calendar: calendar(),
         fuzz: Fuzz::default(),
+        map: None,
         types: Vec::new(),
         rules: Rules::default(),
     }

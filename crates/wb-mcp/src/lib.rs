@@ -34,6 +34,7 @@ pub mod handle;
 pub mod notes;
 pub mod overview;
 pub mod server;
+pub mod terrain;
 
 pub use change::{ChangeInput, FactInput, ValueInput};
 pub use handle::WorldHandle;

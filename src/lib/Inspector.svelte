@@ -1,17 +1,23 @@
 <script lang="ts">
-  import type { Entity, Snapshot } from "./api";
+  import type { Entity, Snapshot, Terrain } from "./api";
 
   let {
     snapshot,
+    terrain = null,
     selected = null,
     onselect,
   }: {
     snapshot: Snapshot | null;
+    terrain: Terrain | null;
     selected: string | null;
     onselect: (id: string | null) => void;
   } = $props();
 
   const entity = $derived(snapshot?.entities.find((e) => e.id === selected) ?? null);
+
+  /** The ground under the selected place. Time-invariant, so it is read from the terrain
+   *  that was fetched once rather than from the snapshot. */
+  const ground = $derived(entity && terrain ? (terrain.places[entity.id] ?? null) : null);
 
   /** Grouped for the overview list, so a snapshot reads as a world and not a dump. */
   const grouped = $derived.by(() => {
@@ -53,6 +59,32 @@
           </div>
         {/each}
       </div>
+    {/if}
+
+    {#if ground}
+      <p class="label">Ground</p>
+      <div class="ground">
+        <span class="chip" style="background:{ground.color}"></span>
+        <span class="biome">{ground.biome}</span>
+        <span class="tags">
+          {#if ground.on_river}<em>on a river</em>{/if}
+          {#if ground.coastal}<em>coastal</em>{/if}
+        </span>
+      </div>
+      <dl class="measures">
+        <div class="fact">
+          <dt>elevation</dt>
+          <dd>{(ground.elevation * 100).toFixed(0)}% of the range</dd>
+        </div>
+        <div class="fact">
+          <dt>temperature</dt>
+          <dd>{ground.temperature.toFixed(1)} °C</dd>
+        </div>
+        <div class="fact">
+          <dt>rainfall</dt>
+          <dd>{(ground.precipitation * 100).toFixed(0)}% of the wettest</dd>
+        </div>
+      </dl>
     {/if}
 
     {#if entity.facts.length}
@@ -267,5 +299,34 @@
     margin: 0;
     font-size: 13px;
     color: var(--ink-3);
+  }
+
+  .ground {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .biome {
+    font-weight: 600;
+  }
+
+  .tags {
+    display: flex;
+    gap: 6px;
+  }
+
+  .tags em {
+    font-style: normal;
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    color: var(--ink-3);
+    border: 1px solid var(--rule);
+    padding: 1px 5px;
+  }
+
+  .measures {
+    margin-bottom: 18px;
   }
 </style>
