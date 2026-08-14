@@ -6,6 +6,7 @@ members = [
     "crates/wb-check",
     "crates/wb-propose",
     "crates/wb-mcp",
+    "crates/wb-terrain",
     "src-tauri",
 ]
 
