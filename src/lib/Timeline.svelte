@@ -34,6 +34,10 @@
   }
 
   function pointerdown(e: PointerEvent) {
+    // A press on an event marker belongs to the marker. Capturing the pointer here
+    // would retarget its click to the track, trading the exact jump to that event
+    // for the approximate one that scrubbing gives.
+    if ((e.target as Element).closest(".event")) return;
     dragging = true;
     trackEl.setPointerCapture(e.pointerId);
     onday(dayAt(e.clientX));
@@ -44,8 +48,9 @@
   }
 
   function pointerup(e: PointerEvent) {
+    if (!dragging) return;
     dragging = false;
-    trackEl.releasePointerCapture?.(e.pointerId);
+    trackEl.releasePointerCapture(e.pointerId);
   }
 
   function keydown(e: KeyboardEvent) {

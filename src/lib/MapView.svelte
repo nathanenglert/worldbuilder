@@ -31,6 +31,7 @@
   let svgEl: SVGSVGElement;
   let dragging = false;
   let panned = false;
+  let captured = false;
   let lastX = 0;
   let lastY = 0;
 
@@ -235,7 +236,6 @@
     panned = false;
     lastX = e.clientX;
     lastY = e.clientY;
-    wrapEl.setPointerCapture(e.pointerId);
   }
 
   function pointermove(e: PointerEvent) {
@@ -244,7 +244,16 @@
     const to = toViewBox(e.clientX, e.clientY);
     const dx = to.x - from.x;
     const dy = to.y - from.y;
-    if (Math.abs(dx) + Math.abs(dy) > 0.5) panned = true;
+    if (Math.abs(dx) + Math.abs(dy) > 0.5) {
+      panned = true;
+      // Capture only once the drag is real. Capturing on pointerdown retargets the
+      // eventual click to the wrap, so every button and marker inside the map goes
+      // dead to a real mouse — while still responding to a synthetic .click().
+      if (!captured) {
+        wrapEl.setPointerCapture(e.pointerId);
+        captured = true;
+      }
+    }
     tx += dx;
     ty += dy;
     lastX = e.clientX;
@@ -253,7 +262,10 @@
 
   function pointerup(e: PointerEvent) {
     dragging = false;
-    wrapEl.releasePointerCapture?.(e.pointerId);
+    if (captured) {
+      wrapEl.releasePointerCapture(e.pointerId);
+      captured = false;
+    }
   }
 
   /** A click that wasn't the tail of a pan clears the selection. */
