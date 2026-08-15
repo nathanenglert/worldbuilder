@@ -431,6 +431,7 @@ Two methodology constraints on the UX:
 | **2 — Integrity** ✅ | Deterministic consistency engine ✅ · extensible ontology ✅ · proposal/draft layer ✅ |
 | **3 — Agent surface** ✅ | MCP server ✅ · tool surface ✅ · shipped skills ✅ · notes ingestion ✅ |
 | **4 — Map depth** ✅ | Coastline vectorization ✅ · cell substrate ✅ · heightmap ✅ · climate ✅ · rivers ✅ · biomes ✅ |
+| **4.5 — Authoring** ✅ | Format-preserving writer ✅ · record editor ✅ · click-to-place markers ✅ · polygon drawing ✅ · events ✅ · delete with reference check ✅ |
 | 5 — Story | Scene stubs, external prose linking, surfaced/iceberg view |
 | 6 — Depth | Git branching UI, lineage/dynasty views, export & publish |
 
@@ -441,20 +442,20 @@ Slice 1 is deliberately the shortest path to the moment that proves the thesis �
 | Crate / step | State |
 |---|---|
 | `wb-core` — calendars, fuzzy dates, anchor resolution, Allen intervals | **done**, 56 tests |
-| `wb-store` — file format, loader, world assembly, time-indexed queries, search | **done**, 23 tests |
+| `wb-store` — file format, loader, world assembly, time-indexed queries, search, format-preserving writer | **done**, 74 tests |
 | `wb-check` — six deterministic consistency rules | **done**, 17 tests |
-| `wb-propose` — review queue, impact analysis, applier | **done**, 16 tests |
-| `wb-mcp` — MCP server, 17 tools, notes ingestion, terrain queries | **done**, 38 tests |
+| `wb-propose` — review queue, impact analysis, applier | **done**, 18 tests |
+| `wb-mcp` — MCP server, 17 tools, notes ingestion, terrain queries | **done**, 40 tests |
 | `wb-terrain` — the eight-stage map pipeline | **done**, 123 tests |
 | `skills/` — six shipped methodologies | **done** |
 | `examples/vashen` — a working seed world | **done**, 11 entities, 3 events, 2 proposals, 1 notes file, 1 map |
-| Tauri commands — query surface for the frontend | **done**, 8 payload tests |
-| Svelte map with five terrain layers, timeline, inspector, findings, review queue | **done** |
+| Tauri commands — query surface, and the direct write path | **done**, 21 tests |
+| Svelte map with five terrain layers, timeline, inspector, findings, review queue, record editor | **done** |
 | SQLite index | **not needed** — see below |
 
-**281 tests** across the workspace. Clippy clean under `-D warnings`; `svelte-check` reports 0 errors and 0 warnings.
+**350 tests** across the workspace. Clippy clean under `-D warnings`; `svelte-check` reports 0 errors and 0 warnings.
 
-Slices 1 through 4 are complete. **Slice 5 (story) is next.**
+Slices 1 through 4.5 are complete. **Slice 5 (story) is next.**
 
 §12.7 was aimed squarely at slice 4 — the map pipeline is the rabbit hole that can swallow months. What kept it to a day was one rule held to throughout: **every stage is a pure function, and the whole thing is a build product.** No stage may consult a world, a date or an entity; no output is ever committed. That made the eight stages independently implementable and independently testable, and it made the tuning loop an ASCII plot in a terminal rather than a round trip through the UI.
 
@@ -510,6 +511,44 @@ Three bugs the work turned up, all found by looking at the map rather than by a 
 - **The first raster was too smooth to vectorize.** Its fBm scaled both the lattice size and the coordinates by the octave, so every octave sat on top of the others and the coastline had detail at exactly one scale. The detail slider had nothing to remove.
 - **All sea was "shallows".** The shelf falloff is broad by design on a map that is mostly interior, and the same parameter governs both sides of the shore — so no sea cell was ever far enough from land to be deep. Left as it is: on a regional map, a shelf sea is the correct answer.
 - **The Silt pooled into a lake short of the coast.** The authored valley stopped inland of the shore, and the flood filled the gap. Extending it to the firth fixed it — but the mere left in its upper reach is real: the interior there is flat, because the western and southern coasts are equidistant and the falloff has no gradient to give.
+
+### Slice 4.5 verified in the running app
+
+Writing to a world is the first thing this app does that can destroy work, so the check is
+what reached the *files*, not what appeared on screen.
+
+| What was done | What it proves |
+|---|---|
+| Opened Marrow's record through the map, in the editor | The authored dates arrive as authored: `0602~` still approximate, `0800` still a plain year, `@evt_siege_of_marrow` still an anchor, `9000` still typed `int` |
+| Changed one population and saved | `git diff` on the real file is **one line** |
+| Clicked the same pixel at 100%, zoomed, panned, and at 900% | The marker renders back under that pixel every time, to within 0.8 px — the *same* 0.8 px at every zoom, so nothing drifts |
+| Pressed, dragged 48 px, released — in marker mode | No marker placed; the map panned. The regression test for `aee5e97` |
+| Dragged a polygon vertex | The vertex moved and the entity group's `transform` was byte-identical before and after |
+| Created a record from a blank form | `place_greyford` derived from the name, and the file it wrote is indistinguishable from a hand-written one |
+
+Every gesture went through a full `pointerdown → pointermove → pointerup → click` sequence
+dispatched at real coordinates, on the element `elementFromPoint` actually returns. A bare
+`.click()` skips hit-testing and pointer capture — which is exactly how the bug in
+`aee5e97` survived a whole slice of checking.
+
+Four things the work turned up, none of which a test would have caught:
+
+- **The validation effect fed itself.** It read `phase` and also wrote it, so
+  reviewed → dirty → validating → reviewed forever, and the panel never left "checking…".
+  Reading the draft as the only tracked dependency and doing the rest under `untrack` fixed
+  it. Svelte's fine-grained reactivity makes this easy to write and invisible until you
+  drive the app.
+- **Finishing a vertex drag left the whole mode.** `onmodedone` was doing double duty as
+  "this gesture committed" and "leave the mode", so the handles vanished after every
+  adjustment. They are different events.
+- **A `<select>` breaks tauri-pilot's screenshot.** Bisected to the element. Replaced with a
+  text input and a `<datalist>`, which is a better fit anyway: the type vocabulary is open,
+  so a dropdown made the UI stricter than the data model and needed an escape hatch bolted
+  on to undo that. The app now has no dropdowns, as it had none before.
+- **A click carried sixteen significant digits, and new files came out in machine style.**
+  `marker: [0.2190476190476191]` as a block sequence, in a folder where every other record
+  says `marker: [0.43, 0.40]`. Coordinates round to four decimals — finer than the raster
+  has pixels — and new records are written through the same emitter the patcher uses.
 
 ### On SQLite: measured, and dropped
 

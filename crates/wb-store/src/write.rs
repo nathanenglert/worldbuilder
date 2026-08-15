@@ -80,10 +80,7 @@ pub struct Rendered {
 /// editor, and which this draft never touched, would be silently reverted.
 pub fn render_entity(path: &Path, original: Option<&str>, desired: &Entity) -> Result<Rendered> {
     let Some(original) = original else {
-        return Ok(Rendered {
-            text: canonical_entity(path, desired)?,
-            fidelity: Fidelity::Created,
-        });
+        return Ok(Rendered { text: fresh_entity(path, desired)?, fidelity: Fidelity::Created });
     };
 
     match patch_entity(path, original, desired) {
@@ -97,7 +94,7 @@ pub fn render_entity(path: &Path, original: Option<&str>, desired: &Entity) -> R
 
 pub fn render_event(path: &Path, original: Option<&str>, desired: &Event) -> Result<Rendered> {
     let Some(original) = original else {
-        return Ok(Rendered { text: canonical_event(path, desired)?, fidelity: Fidelity::Created });
+        return Ok(Rendered { text: fresh_event(path, desired)?, fidelity: Fidelity::Created });
     };
 
     match patch_event(path, original, desired) {
@@ -659,4 +656,88 @@ fn canonical_entity(path: &Path, entity: &Entity) -> Result<String> {
 
 fn canonical_event(path: &Path, event: &Event) -> Result<String> {
     to_yaml(path, event)
+}
+
+// ---------------------------------------------------------------- new files
+
+/// A brand-new record, written the way the ones already in the folder are written.
+///
+/// Serde's own output is correct and reads like machine output: `marker:` followed by a
+/// two-element block sequence, where every record a human wrote says `marker: [x, y]`.
+/// A world folder that is visibly two-tone depending on which records the app made is a
+/// small thing that undermines a large claim — these are your files.
+///
+/// Verified the same way a patch is: if the result does not reparse to what was intended,
+/// serde's version is used instead.
+fn fresh_entity(path: &Path, e: &Entity) -> Result<String> {
+    let mut yaml = String::new();
+    yaml.push_str(&format!("id: {}\n", emit::scalar(&e.id)));
+    yaml.push_str(&format!("name: {}\n", emit::scalar(&e.name)));
+    yaml.push_str(&format!("type: {}\n", emit::scalar(&e.type_name)));
+    if let Some(span) = &e.existence {
+        yaml.push_str(&format!("existence: {}\n", emit::span(span, Style::Flow, 0)));
+    }
+    if !e.parents.is_empty() {
+        yaml.push_str(&format!("parents: {}\n", emit::ids(&e.parents, Style::Flow, 0)));
+    }
+    if !e.facts.is_empty() {
+        yaml.push_str(&format!("facts:\n{}", emit::facts(&e.facts, 0)));
+    }
+    if let Some(p) = e.marker {
+        yaml.push_str(&format!("marker: {}\n", emit::point(p)));
+    }
+    if !e.shape.is_empty() {
+        yaml.push_str(&format!("shape:\n{}", emit::points(&e.shape, Style::Block, 0)));
+    }
+
+    let text = if is_markdown(path) {
+        let body = e.body.trim_end();
+        if body.is_empty() {
+            format!("---\n{yaml}---\n")
+        } else {
+            format!("---\n{yaml}---\n\n{body}\n")
+        }
+    } else {
+        yaml
+    };
+
+    match parse_back::<Entity>(path, &text) {
+        Ok(mut back) => {
+            back.body = e.body.clone();
+            back.source = e.source.clone();
+            if back == *e {
+                return Ok(text);
+            }
+            canonical_entity(path, e)
+        }
+        Err(_) => canonical_entity(path, e),
+    }
+}
+
+fn fresh_event(path: &Path, e: &Event) -> Result<String> {
+    let mut yaml = String::new();
+    yaml.push_str(&format!("id: {}\n", emit::scalar(&e.id)));
+    yaml.push_str(&format!("name: {}\n", emit::scalar(&e.name)));
+    if !e.kind.is_empty() {
+        yaml.push_str(&format!("kind: {}\n", emit::scalar(&e.kind)));
+    }
+    yaml.push_str(&format!("date: {}\n", emit::date(&e.date)));
+    if !e.participants.is_empty() {
+        yaml.push_str(&format!("participants: {}\n", emit::ids(&e.participants, Style::Flow, 0)));
+    }
+    if let Some(loc) = &e.location {
+        yaml.push_str(&format!("location: {}\n", emit::scalar(loc)));
+    }
+
+    match parse_back::<Event>(path, &yaml) {
+        Ok(mut back) => {
+            back.body = e.body.clone();
+            back.source = e.source.clone();
+            if back == *e {
+                return Ok(yaml);
+            }
+            canonical_event(path, e)
+        }
+        Err(_) => canonical_event(path, e),
+    }
 }

@@ -20,6 +20,13 @@ the siege moves it. `?` means nobody knows, and is a perfectly good answer. A bo
 between two claims nobody dated is drawn hatched and dashed rather than assigned to
 whoever the code happened to check first.
 
+**Your files stay yours, down to the comments.** Editing a record in the app rewrites
+only the lines that changed. The comment you left explaining a date, the inline style you
+chose, the key order, a key this version has never heard of, and the prose below the
+frontmatter all survive — so a one-word change is a one-line `git diff`, and the folder
+does not slowly turn into machine output. When a file uses YAML the writer will not risk
+touching, it says so before it writes anything, and you decide.
+
 **The ground is derived, and it is not canon.** Point Worldbuilder at your map image and
 it traces the coastline, meshes it, and works out heights, climate, rivers and biomes —
 about 85 ms for a 2,000-pixel map. The inputs are your image and forty numbers in
@@ -58,17 +65,17 @@ layer to **rain** and look at why the Vashen Empire wants the Vale at all.
 | | |
 |---|---|
 | [`crates/wb-core`](crates/wb-core) | Calendars, fuzzy dates, anchor resolution, Allen's interval algebra |
-| [`crates/wb-store`](crates/wb-store) | The file format, the loader, and the time-indexed queries |
+| [`crates/wb-store`](crates/wb-store) | The file format, the loader, the time-indexed queries, and the writer that puts records back without disturbing them |
 | [`crates/wb-check`](crates/wb-check) | Deterministic consistency rules |
 | [`crates/wb-terrain`](crates/wb-terrain) | The map pipeline — coastline, cells, height, climate, rivers, biomes |
 | [`crates/wb-propose`](crates/wb-propose) | The review queue, and impact analysis |
 | [`crates/wb-mcp`](crates/wb-mcp) | The agent surface — 17 tools, none of which reach canon |
 | [`skills/`](skills) | Worldbuilding methodology, shipped separately from the app |
-| [`src/`](src) | Svelte frontend: map, timeline, inspector, findings, queue |
+| [`src/`](src) | Svelte frontend: map, timeline, inspector, findings, queue, record editor |
 | [`DESIGN.md`](DESIGN.md) | The design brief, and every decision that changed while building |
 
 ```sh
-cargo test --workspace                      # 281 tests
+cargo test --workspace                      # 350 tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p worldbuilder --example check   # consistency report for the example world
 cargo run --release -p wb-mcp --example scale   # what a 20,000-record world costs
@@ -77,6 +84,6 @@ cargo run --release -p worldbuilder --example terrain  # the map pipeline, plott
 
 ## Status
 
-Slices 1–4 of six are complete: the temporal spine, the integrity layer, the agent
-surface, and map depth. Next is story — scene stubs, external prose linking, and the
-surfaced/iceberg view. See the [roadmap](DESIGN.md#11-roadmap).
+Slices 1–4.5 of six are complete: the temporal spine, the integrity layer, the agent
+surface, map depth, and authoring. Next is story — scene stubs, external prose linking,
+and the surfaced/iceberg view. See the [roadmap](DESIGN.md#11-roadmap).

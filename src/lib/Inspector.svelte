@@ -6,11 +6,13 @@
     terrain = null,
     selected = null,
     onselect,
+    onedit,
   }: {
     snapshot: Snapshot | null;
     terrain: Terrain | null;
     selected: string | null;
     onselect: (id: string | null) => void;
+    onedit: (kind: "entity" | "event", id: string | null) => void;
   } = $props();
 
   const entity = $derived(snapshot?.entities.find((e) => e.id === selected) ?? null);
@@ -33,7 +35,10 @@
 
 <aside>
   {#if entity}
-    <button class="back" onclick={() => onselect(null)}>‹ all present</button>
+    <div class="bar">
+      <button class="back" onclick={() => onselect(null)}>‹ all present</button>
+      <button class="edit" onclick={() => onedit("entity", entity.id)}>edit</button>
+    </div>
 
     <header>
       <p class="kind">{entity.type}{entity.primitive ? ` · ${entity.primitive}` : ""}</p>
@@ -176,6 +181,26 @@
     letter-spacing: 0.13em;
     text-transform: uppercase;
     color: var(--accent);
+  }
+
+  .bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .edit {
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    padding: 3px 9px;
+    border: 1px solid var(--rule);
+    color: var(--ink-3);
+  }
+
+  .edit:hover {
+    color: var(--accent);
+    border-color: var(--accent);
   }
 
   .back {

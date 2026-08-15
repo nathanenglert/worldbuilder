@@ -15,6 +15,7 @@
   import Inspector from "./lib/Inspector.svelte";
   import Findings from "./lib/Findings.svelte";
   import Proposals from "./lib/Proposals.svelte";
+  import Editor from "./lib/Editor.svelte";
 
   let summary = $state<WorldSummary | null>(null);
   let events = $state<WorldEvent[]>([]);
@@ -23,7 +24,7 @@
   let backdrop = $state<string | null>(null);
   let findings = $state<Finding[]>([]);
   let proposals = $state<ProposalSummary[]>([]);
-  let panel = $state<"inspector" | "checks" | "proposals">("inspector");
+  let panel = $state<"inspector" | "checks" | "proposals" | "edit">("inspector");
   let day = $state(0);
   let label = $state("");
   let selected = $state<string | null>(null);
@@ -31,6 +32,21 @@
   let busy = $state(false);
   let jumpTo = $state("");
   let rootPath = $state("");
+
+  // ---- authoring
+  let editTarget = $state<{ kind: "entity" | "event"; id: string | null } | null>(null);
+  let editDirty = $state(false);
+  let mapMode = $state<"browse" | "marker" | "shape">("browse");
+  /**
+   * The geometry being edited, held here rather than in the panel so the map can draw it
+   * and change it while the panel owns everything else about the record.
+   */
+  let editGeometry = $state<{ marker: [number, number] | null; shape: [number, number][] }>({
+    marker: null,
+    shape: [],
+  });
+  /** A selection the editor is holding back until the writer says what to do with it. */
+  let pendingSelect = $state<string | null>(null);
 
   const definiteCount = $derived(findings.filter((f) => f.certainty === "definite").length);
   const openCount = $derived(findings.filter((f) => f.certainty === "possible").length);
@@ -163,8 +179,62 @@
   }
 
   function select(id: string | null) {
+    // The single choke point for every way of choosing a record — the map, the inspector
+    // list, a finding. Guarding here is what stops an unsaved edit disappearing without
+    // anybody being asked.
+    if (panel === "edit" && editDirty && id !== editTarget?.id) {
+      pendingSelect = id;
+      return;
+    }
     selected = id;
     if (id) panel = "inspector";
+  }
+
+  function resolvePendingSelect(discard: boolean) {
+    const held = pendingSelect;
+    pendingSelect = null;
+    if (!discard) return;
+    editDirty = false;
+    closeEditor();
+    selected = held;
+    if (held) panel = "inspector";
+  }
+
+  function edit(kind: "entity" | "event", id: string | null) {
+    editTarget = { kind, id };
+    editGeometry = { marker: null, shape: [] };
+    panel = "edit";
+    if (id) selected = id;
+  }
+
+  function closeEditor() {
+    editTarget = null;
+    editDirty = false;
+    mapMode = "browse";
+    editGeometry = { marker: null, shape: [] };
+    panel = "inspector";
+  }
+
+  /**
+   * A direct write, unlike a decided proposal, hands back a fresh summary already — the
+   * backend reloaded before returning. So no second `openWorld`, and terrain is refetched
+   * only when a marker moved, since `places` is a join of markers against ground that
+   * itself has not changed.
+   */
+  async function afterWrite(next: WorldSummary, markerChanged: boolean) {
+    try {
+      summary = next;
+      events = await api.timeline();
+      findings = await api.checkWorld();
+      // Every pending proposal's impact is measured against the current world, so a
+      // direct write changes all of their arithmetic.
+      proposals = await api.listProposals();
+      lastBucket = -1;
+      await fetchSnapshot(day);
+      if (markerChanged && terrain) terrain.places = await api.terrainPlaces();
+    } catch (e) {
+      error = String(e);
+    }
   }
 
   onMount(async () => {
@@ -236,6 +306,13 @@
         >
           {pendingCount} pending
         </button>
+
+        <button class="chip make" onclick={() => edit("entity", null)} title="Write a new record">
+          + record
+        </button>
+        <button class="chip make" onclick={() => edit("event", null)} title="Write a new event">
+          + event
+        </button>
       </div>
 
       <dl class="stats" title="Snapshot queries versus scrub movements">
@@ -251,9 +328,35 @@
     <p class="error">{error}</p>
   {/if}
 
-  <div class="body">
-    <MapView {snapshot} {terrain} {backdrop} {selected} onselect={select} />
-    {#if panel === "checks"}
+  <div class="body" class:editing={panel === "edit"}>
+    <MapView
+      {snapshot}
+      {terrain}
+      {backdrop}
+      {selected}
+      onselect={select}
+      mode={mapMode}
+      draft={panel === "edit" ? editGeometry : null}
+      onmarker={(p) => (editGeometry = { ...editGeometry, marker: p })}
+      onshape={(points) => (editGeometry = { ...editGeometry, shape: points })}
+      onmodedone={() => (mapMode = "browse")}
+    />
+    {#if panel === "edit" && editTarget}
+      <Editor
+        target={editTarget}
+        {summary}
+        geometry={editGeometry}
+        mode={mapMode}
+        {pendingSelect}
+        onmode={(m) => (mapMode = m)}
+        ongeometry={(g) => (editGeometry = g)}
+        ondirty={(d) => (editDirty = d)}
+        onsaved={afterWrite}
+        onclose={closeEditor}
+        onjump={goto}
+        onresolveselect={resolvePendingSelect}
+      />
+    {:else if panel === "checks"}
       <Findings {findings} onjump={inspectFinding} onclose={() => (panel = "inspector")} />
     {:else if panel === "proposals"}
       <Proposals
@@ -262,7 +365,7 @@
         onclose={() => (panel = "inspector")}
       />
     {:else}
-      <Inspector {snapshot} {terrain} {selected} onselect={select} />
+      <Inspector {snapshot} {terrain} {selected} onselect={select} onedit={edit} />
     {/if}
   </div>
 
@@ -316,6 +419,12 @@
     padding: 5px 10px;
     color: var(--ink-3);
     border: 1px solid var(--rule);
+  }
+
+  /* The only creative actions in a header full of counts, so they read as one. */
+  .chip.make {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 35%, transparent);
   }
 
   .chip:hover {
@@ -453,6 +562,16 @@
     min-height: 0;
     display: grid;
     grid-template-columns: 1fr minmax(280px, 350px);
+  }
+
+  /*
+   * A form needs more room than a reading panel. Safe with the map because the SVG uses
+   * `preserveAspectRatio="xMidYMid meet"` — narrowing letterboxes rather than distorts —
+   * and screen-to-world conversion reads `getScreenCTM()` fresh on every call, so the
+   * coordinate maths re-derives itself with no cache to invalidate.
+   */
+  .body.editing {
+    grid-template-columns: 1fr minmax(420px, 520px);
   }
 
   .placeholder {

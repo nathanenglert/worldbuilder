@@ -395,3 +395,48 @@ fn a_marker_can_be_added_to_a_record_that_had_none() {
     assert_eq!(out.fidelity, Fidelity::Preserved);
     assert!(out.text.contains("marker: [0.25, 0.75]"), "got:\n{}", out.text);
 }
+
+/// A record the app made should be indistinguishable from one the writer typed.
+///
+/// Serde's own output is correct and reads like machine output — `marker:` followed by a
+/// block sequence, where every hand-written record in the world says `marker: [x, y]`. A
+/// folder that is visibly two-tone depending on which records came from the app is a
+/// small thing that undercuts a large claim.
+#[test]
+fn a_new_record_is_written_the_way_the_existing_ones_are() {
+    let entity = Entity {
+        id: "place_greyford".into(),
+        name: "Greyford".into(),
+        type_name: "city".into(),
+        existence: Some(wb_store::Span {
+            from: wb_core::parse_date("0602~").unwrap(),
+            to: wb_core::DateExpr::Unknown,
+        }),
+        parents: Vec::new(),
+        facts: vec![wb_store::Fact {
+            attr: "population".into(),
+            value: Value::Int(400),
+            from: wb_core::parse_date("0800").unwrap(),
+            to: wb_core::DateExpr::Unknown,
+        }],
+        marker: Some([0.219, 0.642]),
+        shape: Vec::new(),
+        body: "A ford, and a name for it.".into(),
+        source: PathBuf::new(),
+    };
+
+    let out = render_entity(Path::new("greyford.md"), None, &entity).expect("renders");
+    assert_eq!(out.fidelity, Fidelity::Created);
+    assert!(out.text.contains("marker: [0.219, 0.642]"), "got:\n{}", out.text);
+    assert!(out.text.contains("existence: { from: \"0602~\" }"), "got:\n{}", out.text);
+    assert!(out.text.contains("  - attr: population\n    value: 400\n"), "got:\n{}", out.text);
+    assert!(!out.text.contains("to: \"?\""), "an unstated end should not be written");
+    assert!(out.text.ends_with("A ford, and a name for it.\n"));
+
+    // And it must load back as exactly what went in.
+    let doc = wb_store::frontmatter::split(&out.text).expect("frontmatter");
+    let mut back: Entity = serde_yaml_bw::from_str(doc.frontmatter).expect("reparses");
+    back.body = entity.body.clone();
+    back.source = entity.source.clone();
+    assert_eq!(back, entity);
+}

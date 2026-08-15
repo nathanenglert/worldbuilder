@@ -1,5 +1,17 @@
 <script lang="ts">
   import type { Entity, Layer, Snapshot, Terrain } from "./api";
+  import {
+    clamp01,
+    dropVertex,
+    insertVertex,
+    midpoint,
+    moveVertex,
+    round4,
+    viewToWorld,
+    type Point,
+  } from "./geometry";
+
+  export type MapMode = "browse" | "marker" | "shape";
 
   let {
     snapshot,
@@ -7,12 +19,29 @@
     backdrop = null,
     selected = null,
     onselect,
+    mode = "browse",
+    draft = null,
+    onmarker,
+    onshape,
+    onmodedone,
   }: {
     snapshot: Snapshot | null;
     terrain: Terrain | null;
     backdrop: string | null;
     selected: string | null;
     onselect: (id: string | null) => void;
+    mode?: MapMode;
+    /**
+     * Geometry being edited right now, drawn on top of everything.
+     *
+     * Sourced from the app rather than from `snapshot`, which is what lets the writer
+     * scrub the timeline mid-edit, and what lets a record that does not exist yet show
+     * its marker.
+     */
+    draft?: { marker: Point | null; shape: Point[] } | null;
+    onmarker?: (p: Point) => void;
+    onshape?: (points: Point[]) => void;
+    onmodedone?: () => void;
   } = $props();
 
   // Normalized 0..1 world coordinates scale into this box. The height follows the map
@@ -32,6 +61,8 @@
   let dragging = false;
   let panned = false;
   let captured = false;
+  /** Which vertex a drag has hold of, if any. */
+  let grabbed = $state<number | null>(null);
   let lastX = 0;
   let lastY = 0;
 
@@ -268,16 +299,65 @@
     }
   }
 
-  /** A click that wasn't the tail of a pan clears the selection. */
-  function backgroundClick() {
-    if (!panned) onselect(null);
+  /** The current pan and zoom, for converting a click into a world coordinate. */
+  const view = $derived({ tx, ty, scale, W, H });
+
+  /** Where on the map, in normalized coordinates, a click landed. */
+  function worldAt(e: MouseEvent): Point {
+    return round4(clamp01(viewToWorld(toViewBox(e.clientX, e.clientY), view)));
   }
+
+  /**
+   * A click that wasn't the tail of a pan.
+   *
+   * In browse mode it clears the selection, as it always has. In a placement mode it is
+   * the placement — free-riding on machinery that already works, since `click` fires
+   * after `pointerup` and `panned` is authoritative by then. Pan and zoom keep working
+   * in every mode, which is most of what makes drawing a polygon bearable: you can zoom
+   * in to put a vertex exactly where you meant.
+   */
+  function backgroundClick(e: MouseEvent) {
+    if (panned) return;
+    if (mode === "marker") {
+      onmarker?.(worldAt(e));
+      return;
+    }
+    if (mode === "shape") {
+      onshape?.([...(draft?.shape ?? []), worldAt(e)]);
+      return;
+    }
+    onselect(null);
+  }
+
+  /**
+   * Keys land only on a focused element, and entering a mode from the panel does not
+   * focus the map. Without this, escape goes to whatever input was last touched.
+   */
+  $effect(() => {
+    if (mode !== "browse") wrapEl?.focus();
+  });
 
   function keydown(e: KeyboardEvent) {
     const step = 40 / scale;
+    const shape = draft?.shape ?? [];
     switch (e.key) {
       case "Escape":
+        // Leaving a mode keeps whatever was placed. Discarding is the panel's explicit
+        // revert — escape-destroys-work is a bad bargain in an authoring tool.
+        if (mode !== "browse") {
+          onmodedone?.();
+          break;
+        }
         onselect(null);
+        break;
+      case "Backspace":
+      case "Delete":
+        if (mode !== "shape" || shape.length === 0) return;
+        onshape?.(shape.slice(0, -1));
+        break;
+      case "Enter":
+        if (mode !== "shape" || shape.length < 3) return;
+        onmodedone?.();
         break;
       case "+":
       case "=":
@@ -327,6 +407,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
   class="wrap"
+  class:editing={mode !== "browse"}
   bind:this={wrapEl}
   role="application"
   tabindex="0"
@@ -408,7 +489,7 @@
       {/if}
     </g>
 
-    <g transform="translate({tx} {ty}) scale({scale})">
+    <g class="entities" class:editing={mode !== "browse"} transform="translate({tx} {ty}) scale({scale})">
       {#each regions as r (r.id)}
         {@const uncertain = r.claims.length > 1}
         {@const c = colorOf(r)}
@@ -463,7 +544,126 @@
         </g>
       {/each}
     </g>
+
+    <!-- The record being edited, drawn last so it is never dimmed with the rest. -->
+    {#if draft}
+      <g class="draft" transform="translate({tx} {ty}) scale({scale})">
+        {#if draft.shape.length > 1}
+          <path
+            d={pathOf(draft.shape) + (draft.shape.length > 2 ? "" : "")}
+            fill="var(--accent)"
+            fill-opacity={draft.shape.length > 2 ? 0.14 : 0}
+            stroke="var(--accent)"
+            stroke-width={1.6 / scale}
+            stroke-dasharray={mode === "shape" ? `${6 / scale} ${4 / scale}` : undefined}
+            stroke-linejoin="round"
+          />
+        {/if}
+
+        {#if mode === "shape"}
+          {#each draft.shape as p, i (i)}
+            <!-- A transparent hit area, because a nine-pixel target is impossible with a
+                 trackpad. `transparent` and not `none`: `none` is not hit-testable. -->
+            <rect
+              class="grab"
+              x={p[0] * W - 9 / scale}
+              y={p[1] * H - 9 / scale}
+              width={18 / scale}
+              height={18 / scale}
+              fill="transparent"
+              role="button"
+              tabindex="-1"
+              onpointerdown={(e) => {
+                // Mandatory. Without it the wrap starts a pan and dragging a vertex
+                // drags the whole map. Capturing here is safe in a way capturing on the
+                // wrap was not: this retargets one gesture, not every click on the map.
+                e.stopPropagation();
+                (e.currentTarget as Element).setPointerCapture(e.pointerId);
+                grabbed = i;
+              }}
+              onpointermove={(e) => {
+                if (grabbed !== i) return;
+                onshape?.(moveVertex(draft!.shape, i, worldAt(e)));
+              }}
+              onpointerup={(e) => {
+                if (grabbed !== i) return;
+                (e.currentTarget as Element).releasePointerCapture(e.pointerId);
+                grabbed = null;
+                // Deliberately *not* `onmodedone`: finishing one vertex is not finishing
+                // the outline, and leaving the mode here would take the handles away
+                // after every single adjustment. The panel revalidates on its own.
+              }}
+              onclick={(e) => e.stopPropagation()}
+              onkeydown={(e) => {
+                if (e.key !== "Backspace" && e.key !== "Delete") return;
+                e.stopPropagation();
+                onshape?.(dropVertex(draft!.shape, i));
+              }}
+            />
+            <!-- Squares, not circles: the app has no rounded corners anywhere, and a
+                 circle already means a settlement. -->
+            <rect
+              x={p[0] * W - 4.5 / scale}
+              y={p[1] * H - 4.5 / scale}
+              width={9 / scale}
+              height={9 / scale}
+              fill="var(--paper)"
+              stroke="var(--accent)"
+              stroke-width={1.6 / scale}
+              pointer-events="none"
+            />
+          {/each}
+
+          <!-- Midpoints, so a coarse outline can be refined instead of redrawn. -->
+          {#if draft.shape.length > 2}
+            {#each draft.shape as _, i (`mid-${i}`)}
+              {@const m = midpoint(draft.shape, i)}
+              <rect
+                class="mid"
+                x={m[0] * W - 4 / scale}
+                y={m[1] * H - 4 / scale}
+                width={8 / scale}
+                height={8 / scale}
+                fill="var(--surface)"
+                stroke="var(--accent)"
+                stroke-width={1.2 / scale}
+                role="button"
+                tabindex="-1"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  onshape?.(insertVertex(draft!.shape, i, m));
+                }}
+                onkeydown={(e) => e.key === "Enter" && onshape?.(insertVertex(draft!.shape, i, m))}
+              />
+            {/each}
+          {/if}
+        {/if}
+
+        {#if draft.marker}
+          <circle
+            cx={draft.marker[0] * W}
+            cy={draft.marker[1] * H}
+            r={7 / scale}
+            fill="var(--accent-soft)"
+            stroke="var(--accent)"
+            stroke-width={2 / scale}
+            pointer-events="none"
+          />
+        {/if}
+      </g>
+    {/if}
   </svg>
+
+  {#if mode !== "browse"}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="banner" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+      {#if mode === "marker"}
+        placing · click the map · esc to stop
+      {:else}
+        drawing · {draft?.shape.length ?? 0} points · ⌫ undo · ↵ finish
+      {/if}
+    </div>
+  {/if}
 
   {#if terrain}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -528,6 +728,11 @@
 </div>
 
 <style>
+  .wrap.editing,
+  .wrap.editing:active {
+    cursor: crosshair;
+  }
+
   .wrap {
     position: relative;
     height: 100%;
@@ -623,6 +828,38 @@
 
   .hud button:hover {
     color: var(--accent);
+  }
+
+  .entities.editing {
+    pointer-events: none;
+    opacity: 0.55;
+  }
+
+  .grab {
+    cursor: move;
+  }
+
+  .mid {
+    cursor: copy;
+    opacity: 0.45;
+  }
+
+  .mid:hover {
+    opacity: 1;
+  }
+
+  .banner {
+    position: absolute;
+    top: 14px;
+    left: 270px;
+    padding: 5px 11px;
+    background: color-mix(in srgb, var(--paper) 86%, transparent);
+    border: 1px solid var(--rule);
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    color: var(--ink-2);
+    pointer-events: auto;
   }
 
   .layers {

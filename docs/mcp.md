@@ -16,6 +16,15 @@ from the agent side. You lose trust in a tool like this in exactly one bad sessi
 the queue costs nothing — canon-versus-speculative staging is something writers want
 anyway.
 
+**Omission is never destructive.** An end of `set_existence` you leave out stays as it
+was; send `"?"` to clear one. Correcting a death date must not quietly erase a birth date
+nobody asked about.
+
+**Accepting keeps your formatting.** A proposal is applied by patching the record in
+place, so comments, inline style, and keys the model does not understand all survive, and
+the diff you review is the diff you get. If a file uses YAML the writer will not risk
+touching — anchors, aliases, merge keys — the queue says so before you accept.
+
 **It never resolves your uncertainty.** A fact that is only *maybe* true at a date comes
 back as `maybe`. A `possible` consistency finding comes back as possible, because that
 is the shape a deliberate mystery takes. The engine detects; judgement is the agent's

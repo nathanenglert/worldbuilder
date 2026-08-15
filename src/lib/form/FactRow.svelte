@@ -1,0 +1,111 @@
+<script lang="ts">
+  /**
+   * One time-indexed assertion.
+   *
+   * The two date boxes are the reason a fact is not just a key and a value: *nothing is
+   * ever silently overwritten — new truth closes an interval and opens another*. Marrow's
+   * population going from nine thousand to three thousand is not one number replacing
+   * another, it is one window ending where the next begins, and the form has to make
+   * that the easy thing to express.
+   */
+  import type { DraftFact } from "../draft";
+  import DateField from "./DateField.svelte";
+  import Field from "./Field.svelte";
+  import TextInput from "./TextInput.svelte";
+  import ValueField from "./ValueField.svelte";
+
+  let {
+    fact = $bindable(),
+    onremove,
+    onsplit,
+    onjump,
+    onsettled,
+  }: {
+    fact: DraftFact;
+    onremove: () => void;
+    onsplit?: () => void;
+    onjump?: (day: number) => void;
+    onsettled?: () => void;
+  } = $props();
+</script>
+
+<div class="fact">
+  <div class="head">
+    <div class="attr">
+      <Field label="attribute">
+        <TextInput bind:value={fact.attr} mono onblur={onsettled} />
+      </Field>
+    </div>
+    <div class="tools">
+      {#if onsplit}
+        <button
+          type="button"
+          title="Close this window and open a new one with the same attribute"
+          onclick={onsplit}>close &amp; continue</button
+        >
+      {/if}
+      <button type="button" class="drop" title="Remove this fact" onclick={onremove}>remove</button>
+    </div>
+  </div>
+
+  <Field label="value">
+    <ValueField
+      bind:value={fact.value}
+      bind:kind={fact.kind}
+      bind:pinned={fact.pinned}
+      {onsettled}
+    />
+  </Field>
+
+  <div class="window">
+    <DateField bind:value={fact.from} label="from" {onjump} {onsettled} />
+    <DateField bind:value={fact.to} label="to" {onjump} {onsettled} />
+  </div>
+</div>
+
+<style>
+  .fact {
+    display: grid;
+    gap: 8px;
+    padding: 10px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+  }
+
+  .head {
+    display: flex;
+    align-items: end;
+    gap: 8px;
+  }
+
+  .attr {
+    flex: 1;
+  }
+
+  .tools {
+    display: flex;
+    gap: 8px;
+    padding-bottom: 6px;
+  }
+
+  .tools button {
+    font-family: var(--f-mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: var(--ink-3);
+  }
+
+  .tools button:hover {
+    color: var(--accent);
+  }
+
+  .tools .drop:hover {
+    color: var(--warn);
+  }
+
+  .window {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+</style>
