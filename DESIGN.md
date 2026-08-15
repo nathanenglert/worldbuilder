@@ -317,7 +317,7 @@ changes:
     to: "@evt_siege_of_marrow+1y"
 ```
 
-Six operations cover the realistic surface: `create_entity`, `create_event`, `add_fact`, `remove_fact`, `set_existence`, `set_event_date`.
+Six operations cover the realistic surface: `create_entity`, `create_event`, `add_fact`, `remove_fact`, `set_existence`, `set_event_date`. **Omission is never destructive** — an end of `set_existence` you leave out stays as it was, and `"?"` is how you clear one. The two layers disagreed about this until slice 4.5: the applier left omitted ends alone while the tool schema cleared them, so an agent correcting a death date would silently erase the birth date it never mentioned.
 
 **The queue is worth more than a list of pending edits because of impact analysis.** Before accepting anything, `wb-propose` simulates the change in memory, re-runs the consistency engine, and diffs the findings — so the writer sees which contradictions a proposal settles and which it creates. The example world ships one of each:
 
@@ -332,7 +332,7 @@ Findings are matched on what they are *about* (rule + subject + related), never 
 
 **Writing is deliberately conservative.** Rendering happens in full before anything is written, so a proposal that cannot be applied completely is not applied in part. Prose bodies are preserved verbatim. Decided proposals stay on disk carrying their status — provenance that matters more once agents are filling the queue.
 
-**Two stated limitations.** Frontmatter is rewritten canonically, so comments inside it do not survive and a one-line change can produce a wide diff; the diff is shown before accepting and every write is an ordinary git change. And a key the model does not understand is *refused* rather than dropped — `Error::WouldDropKey` blocks the write entirely, because this tool holds people's life's work.
+~~**Two stated limitations.** Frontmatter is rewritten canonically, so comments inside it do not survive and a one-line change can produce a wide diff.~~ **Fixed in slice 4.5.** Applying now patches a record in place: comments, inline style, key order, and keys the model does not model all survive, and a one-field change is a one-line diff. A file using YAML the writer will not risk patching — anchors, aliases, merge keys — is reported as such before anything is written and falls back to the old canonical rewrite. `Error::WouldDropKey` still guards that fallback, because a key the model does not understand must be *refused* rather than dropped: this tool holds people's life's work.
 
 ### 7.3 Shippable skills
 

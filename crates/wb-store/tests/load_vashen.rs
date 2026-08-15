@@ -236,3 +236,83 @@ fn search_is_bounded_and_case_insensitive_and_ignores_an_empty_query() {
     assert!(world.search("   ", 10).is_empty());
     assert!(world.search("nothing here spells this", 10).is_empty());
 }
+
+// ---- editing a loaded world in memory
+
+/// Reassembly is the validation. Everything the loader enforces — one id namespace
+/// shared by entities and events, resolvable anchors, a legal calendar — has to still
+/// hold for a world the app has edited, and the cheapest way to guarantee that is to
+/// make an edit go through the same door a load does.
+#[test]
+fn replacing_a_record_still_catches_a_duplicate_id() {
+    let world = vashen();
+    let mut clash = world.entities["place_marrow"].clone();
+    clash.id = "evt_siege_of_marrow".into();
+
+    let err = world.with_entity(clash).expect_err("an event already owns that id");
+    assert!(
+        err.to_string().contains("evt_siege_of_marrow"),
+        "the error should name the id that collided, got: {err}"
+    );
+}
+
+#[test]
+fn an_edited_record_replaces_rather_than_duplicates() {
+    let world = vashen();
+    let mut marrow = world.entities["place_marrow"].clone();
+    marrow.name = "Marrow-on-the-Wall".into();
+
+    let after = world.with_entity(marrow).expect("a rename is not a collision");
+    assert_eq!(after.entities.len(), world.entities.len(), "editing must not add a record");
+    assert_eq!(after.entities["place_marrow"].name, "Marrow-on-the-Wall");
+    assert_eq!(world.entities["place_marrow"].name, "Marrow", "the original is untouched");
+}
+
+/// The siege is what half the Vale's history is dated against. Removing it cannot be
+/// allowed to quietly strand those anchors — the delete confirmation needs a refusal it
+/// can explain, not a world that loads with dates pointing at nothing.
+#[test]
+fn removing_a_record_that_other_dates_anchor_to_is_refused() {
+    let world = vashen();
+    assert!(
+        world.without("evt_siege_of_marrow").is_err(),
+        "facts anchor to the siege, so it cannot simply vanish"
+    );
+    assert!(world.without("thing_high_tongue").is_ok(), "nothing dates itself against a language");
+}
+
+#[test]
+fn references_to_finds_anchors_as_well_as_named_ids() {
+    let world = vashen();
+
+    let siege = world.references_to("evt_siege_of_marrow");
+    assert!(
+        siege.iter().any(|r| r.by == "ter_vale_of_corrath" && r.how == "fact anchor"),
+        "the Vale's ownership changes hands at the siege, got: {siege:?}"
+    );
+
+    let vashen = world.references_to("pol_vashen");
+    assert!(
+        vashen.iter().any(|r| r.how == "fact value"),
+        "a polity is named by owner facts, got: {vashen:?}"
+    );
+    assert!(
+        vashen.iter().any(|r| r.by == "evt_siege_of_marrow" && r.how == "participant"),
+        "Vashen besieged Marrow, got: {vashen:?}"
+    );
+
+    assert!(world.references_to("place_marrow").iter().any(|r| r.how == "location"));
+    assert!(world.references_to("no_such_id").is_empty());
+}
+
+/// A record never counts as referring to itself, or every delete would look blocked.
+#[test]
+fn a_record_does_not_reference_itself() {
+    let world = vashen();
+    for id in world.entities.keys().chain(world.events.keys()) {
+        assert!(
+            world.references_to(id).iter().all(|r| &r.by != id),
+            "{id} was reported as referring to itself"
+        );
+    }
+}

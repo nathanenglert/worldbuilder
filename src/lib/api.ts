@@ -43,6 +43,13 @@ export interface WorldSummary {
   span: [number, number];
   change_points: number[];
   undeclared_types: string[];
+  types: { name: string; primitive: string }[];
+  /**
+   * Every id in the world, entities and events together — they share one namespace.
+   * Check a new id against this, never against `snapshot.entities`, which is filtered
+   * by date and would let a clash go unnoticed until the save.
+   */
+  ids: string[];
 }
 
 export interface WorldEvent {
@@ -172,6 +179,103 @@ export interface Terrain {
 /** Which quantity the terrain layer is shaded by. */
 export type Layer = "biome" | "height" | "temperature" | "precipitation" | "none";
 
+// ---------------------------------------------------------------- authoring
+
+export type ValueKind = "text" | "int" | "float" | "bool";
+
+/**
+ * A fact as it was *authored*, not as it renders at a date.
+ *
+ * The difference is the whole reason these types exist. `Fact` — what the map receives —
+ * has no `from`/`to` and a value stringified through `Display`, so a form bound to it and
+ * saved back would resolve `@evt_siege_of_marrow` into nothing and turn 9000 into "9000".
+ */
+export interface FactRecord {
+  attr: string;
+  value: string | number | boolean;
+  kind: ValueKind;
+  from: string | null;
+  to: string | null;
+}
+
+export interface EntityRecord {
+  id: string;
+  name: string;
+  type: string;
+  primitive: string | null;
+  existence_from: string | null;
+  existence_to: string | null;
+  parents: string[];
+  facts: FactRecord[];
+  marker: [number, number] | null;
+  shape: [number, number][];
+  body: string;
+  path: string;
+  /** Content hash of the file as it was read. Sent back on save; a mismatch is refused. */
+  revision: string | null;
+}
+
+export interface EventRecord {
+  id: string;
+  name: string;
+  kind: string;
+  date: string;
+  participants: string[];
+  location: string | null;
+  path: string;
+  revision: string | null;
+}
+
+/** What the writer sends back. Dates are strings exactly as typed. */
+export interface EntityDraft {
+  id: string;
+  name: string;
+  type: string;
+  existence_from: string | null;
+  existence_to: string | null;
+  parents: string[];
+  facts: { attr: string; value: string | number | boolean; from: string | null; to: string | null }[];
+  marker: [number, number] | null;
+  shape: [number, number][];
+  /** `null` leaves the prose exactly as it is. */
+  body: string | null;
+}
+
+export interface EventDraft {
+  id: string;
+  name: string;
+  kind: string | null;
+  date: string;
+  participants: string[];
+  location: string | null;
+}
+
+export interface Reference {
+  by: string;
+  name: string;
+  how: string;
+}
+
+/** What a save would do, before it does it. */
+export interface EditPreview {
+  files: { path: string; is_new: boolean; diff: DiffLine[] }[];
+  resolved: Finding[];
+  introduced: Finding[];
+  breaks: boolean;
+  /** False when saving would rewrite the file rather than patch it — comments at risk. */
+  preserves_bytes: boolean;
+  reformat_reason: string | null;
+  comments_at_risk: string[];
+  references: Reference[];
+  revision: string | null;
+}
+
+export interface SaveResult {
+  summary: WorldSummary;
+  written: string[];
+  revision: string | null;
+}
+
 /** False when the page is open in a plain browser rather than the desktop shell. */
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -189,4 +293,23 @@ export const api = {
   proposalDetail: (id: string) => invoke<ProposalDetail>("proposal_detail", { id }),
   decideProposal: (id: string, accept: boolean) =>
     invoke<WorldSummary>("decide_proposal", { id, accept }),
+
+  entityRecord: (id: string) => invoke<EntityRecord>("entity_record", { id }),
+  eventRecord: (id: string) => invoke<EventRecord>("event_record", { id }),
+  previewEntity: (draft: EntityDraft) => invoke<EditPreview>("preview_entity", { draft }),
+  previewEvent: (draft: EventDraft) => invoke<EditPreview>("preview_event", { draft }),
+  previewDelete: (id: string) => invoke<EditPreview>("preview_delete", { id }),
+  saveEntity: (draft: EntityDraft, revision: string | null, allowReformat = false) =>
+    invoke<SaveResult>("save_entity", { draft, revision, allowReformat }),
+  saveEvent: (draft: EventDraft, revision: string | null, allowReformat = false) =>
+    invoke<SaveResult>("save_event", { draft, revision, allowReformat }),
+  saveGeometry: (
+    id: string,
+    marker: [number, number] | null,
+    shape: [number, number][],
+    revision: string | null,
+  ) => invoke<SaveResult>("save_geometry", { id, marker, shape, revision }),
+  deleteRecord: (id: string, revision: string | null) =>
+    invoke<SaveResult>("delete_record", { id, revision }),
+  terrainPlaces: () => invoke<Record<string, Place>>("terrain_places"),
 };

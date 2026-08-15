@@ -4,12 +4,22 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use wb_core::{
-    Calendar, Containment, Day, Fuzz, FuzzyInterval, Interval, NodeMap, Resolved, Resolver,
-    change_points, parse_date,
+    Calendar, Containment, DateExpr, Day, Fuzz, FuzzyInterval, Interval, NodeMap, Resolved,
+    Resolver, change_points, parse_date,
 };
 
 use crate::error::{Error, Result};
 use crate::model::{Entity, Event, Fact, MapSpec, Primitive, Rules, TypeDef, Value, WorldDef};
+
+/// One record naming another, and the way it names it.
+///
+/// `how` is a short phrase for a human — "participant", "fact anchor" — because the only
+/// caller is a confirmation asking whether removing something is really what was meant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reference {
+    pub by: String,
+    pub how: &'static str,
+}
 
 /// One fact, as it stands at a particular moment.
 #[derive(Debug, Clone, Copy)]
@@ -211,6 +221,103 @@ impl World {
             types: self.types.values().cloned().collect(),
             rules: self.rules.clone(),
         }
+    }
+
+    /// This world with one record replaced, or added if the id is new.
+    ///
+    /// Every edit goes through here rather than through field validators, because
+    /// reassembly *is* the validation: duplicate ids across the shared entity/event
+    /// namespace, anchor cycles, anchors pointing at a date that no longer exists, and
+    /// calendar validity are all enforced by `assemble` and by nothing else. A checker
+    /// written alongside it would be a second implementation to keep in agreement.
+    pub fn with_entity(&self, entity: Entity) -> Result<World> {
+        let mut entities = self.entities.clone();
+        entities.insert(entity.id.clone(), entity);
+        self.reassemble(entities, self.events.clone())
+    }
+
+    pub fn with_event(&self, event: Event) -> Result<World> {
+        let mut events = self.events.clone();
+        events.insert(event.id.clone(), event);
+        self.reassemble(self.entities.clone(), events)
+    }
+
+    /// This world without `id`, whether it names an entity or an event.
+    ///
+    /// Fails with an unresolvable-anchor error if anything still dates itself against the
+    /// record being removed, which is the answer a delete confirmation wants.
+    pub fn without(&self, id: &str) -> Result<World> {
+        let mut entities = self.entities.clone();
+        let mut events = self.events.clone();
+        entities.remove(id);
+        events.remove(id);
+        self.reassemble(entities, events)
+    }
+
+    fn reassemble(
+        &self,
+        entities: BTreeMap<String, Entity>,
+        events: BTreeMap<String, Event>,
+    ) -> Result<World> {
+        World::assemble(
+            self.root.clone(),
+            self.definition(),
+            entities.into_values().collect(),
+            events.into_values().collect(),
+        )
+    }
+
+    /// Everything that names `id`, in the four ways a record can be named.
+    ///
+    /// Anchors count, and they are the ones a writer forgets: `@evt_siege_of_marrow`
+    /// dates a fact somewhere else entirely, and `act_aldric.death` reaches an entity
+    /// through a suffix the id itself never carries.
+    pub fn references_to(&self, id: &str) -> Vec<Reference> {
+        let anchors = |expr: &DateExpr| match expr {
+            DateExpr::Anchor { node, .. } => {
+                node == id || node.split_once('.').is_some_and(|(head, _)| head == id)
+            }
+            _ => false,
+        };
+        let mut out = Vec::new();
+
+        for e in self.entities.values() {
+            if e.id == id {
+                continue;
+            }
+            if e.parents.iter().any(|p| p == id) {
+                out.push(Reference { by: e.id.clone(), how: "parent" });
+            }
+            if let Some(span) = &e.existence
+                && (anchors(&span.from) || anchors(&span.to))
+            {
+                out.push(Reference { by: e.id.clone(), how: "existence anchor" });
+            }
+            for f in &e.facts {
+                if f.value.as_ref_id() == Some(id) {
+                    out.push(Reference { by: e.id.clone(), how: "fact value" });
+                } else if anchors(&f.from) || anchors(&f.to) {
+                    out.push(Reference { by: e.id.clone(), how: "fact anchor" });
+                }
+            }
+        }
+
+        for ev in self.events.values() {
+            if ev.id == id {
+                continue;
+            }
+            if ev.participants.iter().any(|p| p == id) {
+                out.push(Reference { by: ev.id.clone(), how: "participant" });
+            }
+            if ev.location.as_deref() == Some(id) {
+                out.push(Reference { by: ev.id.clone(), how: "location" });
+            }
+            if anchors(&ev.date) {
+                out.push(Reference { by: ev.id.clone(), how: "date anchor" });
+            }
+        }
+
+        out
     }
 
     /// Everything true at one instant.

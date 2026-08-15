@@ -4,7 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use wb_store::{Entity, Event, Fact, Primitive, World};
+use wb_store::write::Fidelity;
+use wb_store::{Entity, Event, Fact, World};
 
 use crate::error::{Error, Result};
 use crate::model::{Change, Proposal};
@@ -21,11 +22,20 @@ pub struct FileEdit {
     pub path: PathBuf,
     pub before: Option<String>,
     pub after: String,
+    /// How much of the writer's own formatting this render keeps. Carried out to the
+    /// review UI, because a reviewer deciding whether to accept should know when the
+    /// answer is "this reformats your file" before they find out from the diff.
+    pub fidelity: Fidelity,
 }
 
 impl FileEdit {
     pub fn is_new(&self) -> bool {
         self.before.is_none()
+    }
+
+    /// True when accepting would rewrite the file rather than patch it.
+    pub fn reformats(&self) -> bool {
+        !self.fidelity.preserves_bytes()
     }
 
     pub fn changes_anything(&self) -> bool {
@@ -150,16 +160,25 @@ pub fn preview(world: &World, proposal: &Proposal) -> Result<Vec<FileEdit>> {
 
     let mut edits = Vec::new();
     for id in touched {
+        // The writer patches in place where it can, so a key this version does not model
+        // survives instead of blocking the write. `guard_unknown_keys` still stands
+        // behind the canonical fallback, which is the only path that could drop one.
         if let Some(entity) = after.entities.get(id) {
             let path = entity_path(&after, entity);
             let before = read_if_present(&path)?;
-            guard_unknown_keys(&path, before.as_deref(), &ENTITY_KEYS, true)?;
-            edits.push(FileEdit { after: render_entity(&path, entity)?, path, before });
+            let out = wb_store::write::render_entity(&path, before.as_deref(), entity)?;
+            if !out.fidelity.preserves_bytes() {
+                guard_unknown_keys(&path, before.as_deref(), &ENTITY_KEYS, true)?;
+            }
+            edits.push(FileEdit { after: out.text, fidelity: out.fidelity, path, before });
         } else if let Some(event) = after.events.get(id) {
             let path = event_path(&after, event);
             let before = read_if_present(&path)?;
-            guard_unknown_keys(&path, before.as_deref(), &EVENT_KEYS, false)?;
-            edits.push(FileEdit { after: render_event(&path, event)?, path, before });
+            let out = wb_store::write::render_event(&path, before.as_deref(), event)?;
+            if !out.fidelity.preserves_bytes() {
+                guard_unknown_keys(&path, before.as_deref(), &EVENT_KEYS, false)?;
+            }
+            edits.push(FileEdit { after: out.text, fidelity: out.fidelity, path, before });
         }
     }
 
@@ -182,12 +201,9 @@ pub fn accept(world: &World, proposal: &Proposal) -> Result<Vec<PathBuf>> {
 
     let mut written = Vec::new();
     for edit in edits.iter().filter(|e| e.changes_anything()) {
-        if let Some(parent) = edit.path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|source| Error::Io { path: parent.to_path_buf(), source })?;
-        }
-        fs::write(&edit.path, &edit.after)
-            .map_err(|source| Error::Io { path: edit.path.clone(), source })?;
+        // Through a temp file and a rename: the MCP server re-reads this tree on every
+        // call, so a torn write is a file another process will genuinely try to parse.
+        wb_store::atomic::write(&edit.path, &edit.after)?;
         written.push(edit.path.clone());
     }
     Ok(written)
@@ -233,75 +249,7 @@ fn guard_unknown_keys(
     Ok(())
 }
 
-fn to_yaml<T: serde::Serialize>(path: &Path, value: &T) -> Result<String> {
-    serde_yaml_bw::to_string(value)
-        .map_err(|e| Error::Yaml { path: path.to_path_buf(), message: e.to_string() })
-}
-
-fn render_entity(path: &Path, entity: &Entity) -> Result<String> {
-    let yaml = to_yaml(path, entity)?;
-    if path.extension().is_some_and(|e| e == "md" || e == "markdown") {
-        let body = entity.body.trim_end();
-        if body.is_empty() {
-            return Ok(format!("---\n{yaml}---\n"));
-        }
-        return Ok(format!("---\n{yaml}---\n\n{body}\n"));
-    }
-    Ok(yaml)
-}
-
-fn render_event(path: &Path, event: &Event) -> Result<String> {
-    to_yaml(path, event)
-}
-
-// ---------------------------------------------------------------- paths
-
-fn slug(name: &str) -> String {
-    let mut out = String::new();
-    let mut dash = false;
-    for ch in name.chars() {
-        if ch.is_ascii_alphanumeric() {
-            out.push(ch.to_ascii_lowercase());
-            dash = false;
-        } else if !dash && !out.is_empty() {
-            out.push('-');
-            dash = true;
-        }
-    }
-    let trimmed = out.trim_end_matches('-').to_string();
-    if trimmed.is_empty() { "untitled".to_string() } else { trimmed }
-}
-
-fn folder_for(world: &World, entity: &Entity) -> &'static str {
-    match world.primitive_of(entity) {
-        Some(Primitive::Actor) => "actors",
-        Some(Primitive::Polity) => "polities",
-        Some(Primitive::Place) => "places",
-        Some(Primitive::Thing) => "things",
-        Some(Primitive::Event) | None => "misc",
-    }
-}
-
-fn entity_path(world: &World, entity: &Entity) -> PathBuf {
-    if !entity.source.as_os_str().is_empty() {
-        return entity.source.clone();
-    }
-    world
-        .root
-        .join("entities")
-        .join(folder_for(world, entity))
-        .join(format!("{}.md", slug(&entity.name)))
-}
-
-fn event_path(world: &World, event: &Event) -> PathBuf {
-    if !event.source.as_os_str().is_empty() {
-        return event.source.clone();
-    }
-    // Events sort by date in the folder listing, the way the existing ones do.
-    let year = world
-        .resolved_node(&event.id)
-        .and_then(|r| r.nominal)
-        .map(|d| world.calendar.from_day(d).year)
-        .unwrap_or(0);
-    world.root.join("events").join(format!("{:04}-{}.yaml", year, slug(&event.name)))
-}
+// Rendering and path derivation both moved to `wb-store` in the authoring slice. The
+// queue and the app's own writes have to produce the same bytes for the same record and
+// put them in the same place, and two implementations of that would eventually disagree.
+use wb_store::paths::{entity_path, event_path};

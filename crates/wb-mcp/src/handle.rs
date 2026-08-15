@@ -8,17 +8,11 @@
 //! The fingerprint is a walk; the reload is a walk plus a parse. Skipping the parse is
 //! most of the win, and the walk is what makes the answer correct.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use wb_store::freshness::fingerprint;
 use wb_store::{World, load};
-
-/// Folders whose contents can change what a query answers. `map` is here because a
-/// redrawn coastline changes what the ground under a settlement is, and `world.yaml`
-/// alone would not notice.
-const WATCHED: [&str; 4] = ["entities", "events", "proposals", "map"];
 
 #[derive(Debug)]
 pub struct WorldHandle {
@@ -78,60 +72,5 @@ impl WorldHandle {
 
     pub fn reloads(&self) -> u64 {
         self.state.lock().map(|s| s.reloads).unwrap_or(0)
-    }
-}
-
-/// A cheap summary of every file that could change an answer: path, size, and mtime.
-///
-/// Deliberately not a content hash — this runs on every call, and the point is to be
-/// much cheaper than the parse it avoids.
-fn fingerprint(root: &Path) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    stamp(&root.join("world.yaml"), &mut hasher);
-    for dir in WATCHED {
-        walk(&root.join(dir), &mut hasher);
-    }
-    hasher.finish()
-}
-
-fn walk(dir: &Path, hasher: &mut DefaultHasher) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
-
-    // Sorted, so two runs over an unchanged tree agree regardless of readdir order.
-    // Metadata is taken from the directory entry rather than re-`stat`ing the path:
-    // this walk runs on every call, and `is_dir()` plus `metadata()` on a `Path` is two
-    // more syscalls per file than the entry already has the answers for.
-    let mut entries: Vec<std::fs::DirEntry> = entries.flatten().collect();
-    entries.sort_by_key(std::fs::DirEntry::file_name);
-
-    for entry in entries {
-        let name = entry.file_name();
-        if name.to_str().is_some_and(|n| n.starts_with('.')) {
-            continue;
-        }
-        name.hash(hasher);
-        match entry.file_type() {
-            Ok(kind) if kind.is_dir() => walk(&entry.path(), hasher),
-            Ok(_) => {
-                if let Ok(meta) = entry.metadata() {
-                    stamp_meta(&meta, hasher);
-                }
-            }
-            Err(_) => {}
-        }
-    }
-}
-
-fn stamp(path: &Path, hasher: &mut DefaultHasher) {
-    path.hash(hasher);
-    if let Ok(meta) = std::fs::metadata(path) {
-        stamp_meta(&meta, hasher);
-    }
-}
-
-fn stamp_meta(meta: &std::fs::Metadata, hasher: &mut DefaultHasher) {
-    meta.len().hash(hasher);
-    if let Ok(modified) = meta.modified() {
-        modified.hash(hasher);
     }
 }

@@ -106,8 +106,9 @@ pub enum ChangeInput {
     /// Remove a fact. Matched on attribute *and* value, since one attribute may be
     /// asserted several times over different windows.
     RemoveFact { entity: String, attr: String, value: ValueInput },
-    /// Change when a record existed. Omitted ends are cleared to unknown, not left as
-    /// they were — say what both ends should be.
+    /// Change when a record existed. An end you omit is **left as it was**; send `"?"`
+    /// to clear one. Correcting a death date must not quietly erase the birth date, and
+    /// omission is the easiest mistake to make from this side of the wire.
     SetExistence {
         entity: String,
         #[serde(default)]
@@ -167,10 +168,13 @@ impl ChangeInput {
             Self::RemoveFact { entity, attr, value } => {
                 Change::RemoveFact { entity, attr, value: value.into() }
             }
+            // `None` all the way down: the applier reads a missing end as "leave it
+            // alone", and wrapping it in `Some(Unknown)` here would turn every omission
+            // into a deletion.
             Self::SetExistence { entity, from, to } => Change::SetExistence {
                 entity,
-                from: Some(date(from.as_deref(), "from")?),
-                to: Some(date(to.as_deref(), "to")?),
+                from: from.as_deref().map(|d| date(Some(d), "from")).transpose()?,
+                to: to.as_deref().map(|d| date(Some(d), "to")).transpose()?,
             },
             Self::SetEventDate { event, date: at } => {
                 Change::SetEventDate { event, date: required(&at, "date")? }

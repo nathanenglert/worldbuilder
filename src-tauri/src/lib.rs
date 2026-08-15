@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod edit;
 pub mod terrain;
 
 pub fn run() {
@@ -26,6 +27,18 @@ pub fn run() {
             commands::list_proposals,
             commands::proposal_detail,
             commands::decide_proposal,
+            // Authoring. Reading a record is separate from reading a *snapshot* on
+            // purpose: the snapshot is a rendered view at a date and cannot be saved back.
+            edit::entity_record,
+            edit::event_record,
+            edit::preview_entity,
+            edit::preview_event,
+            edit::preview_delete,
+            edit::save_entity,
+            edit::save_event,
+            edit::save_geometry,
+            edit::delete_record,
+            terrain::terrain_places,
         ])
         .run(tauri::generate_context!())
         .expect("failed to start Worldbuilder");

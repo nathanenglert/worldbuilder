@@ -890,3 +890,63 @@ async fn orientation_carries_the_ground_and_says_it_is_not_canon() {
         "an agent that thinks it can propose against terrain will waste a proposal"
     );
 }
+
+/// Omission must never be destructive.
+///
+/// Aldric's birth is recorded and his death is the world's one open question. An agent
+/// correcting the death date will naturally send only `to`, and if that cleared `from`
+/// it would silently delete a date nobody asked about — the exact shape of mistake the
+/// review queue exists to make visible, arriving in a form the diff makes look
+/// deliberate.
+#[tokio::test]
+async fn omitting_one_end_of_set_existence_does_not_erase_the_other() {
+    let agent = Agent::example().await;
+
+    let out = agent
+        .call(
+            "check_changes",
+            json!({
+                "changes": [{
+                    "op": "set_existence",
+                    "entity": "act_aldric_vane",
+                    "to": "@evt_siege_of_marrow+1y"
+                }]
+            }),
+        )
+        .await;
+
+    // Aldric's existence is one inline line, `{ from: "0771-06-12", to: "0811~" }`.
+    // Setting only `to` rewrites that one line. If omission cleared `from`, the birth
+    // date would be gone from it — and because the whole span is one line, the way to
+    // see that is that the change still settles the open question rather than opening
+    // new ones about a man with no birth date.
+    assert_eq!(out["files"][0]["changed_lines"], 1, "{out:#?}");
+    assert_eq!(out["resolves"].as_array().unwrap().len(), 1, "the death date is settled");
+    assert_eq!(out["breaks_something"], false, "{out:#?}");
+    assert_eq!(
+        out["possible_after"], 0,
+        "clearing the birth date would leave the parentage check unable to conclude: {out:#?}"
+    );
+}
+
+#[tokio::test]
+async fn a_question_mark_clears_an_existence_end() {
+    let agent = Agent::example().await;
+
+    let out = agent
+        .call(
+            "check_changes",
+            json!({
+                "changes": [{
+                    "op": "set_existence",
+                    "entity": "act_aldric_vane",
+                    "from": "?"
+                }]
+            }),
+        )
+        .await;
+
+    // Clearing a birth date is legal and loses the parentage check its precision fed,
+    // so the call must succeed rather than error.
+    assert!(out.get("error").is_none(), "clearing an end should be expressible: {out:#?}");
+}

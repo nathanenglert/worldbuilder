@@ -15,14 +15,71 @@ use wb_store::{Primitive, World, load};
 
 #[derive(Default)]
 pub struct AppState {
-    world: Mutex<Option<World>>,
+    world: Mutex<Option<Open>>,
+}
+
+/// The open world, plus the stamp of the tree it was loaded from.
+struct Open {
+    world: World,
+    fingerprint: u64,
 }
 
 impl AppState {
+    /// Run a query against the current world, reloading first if the files moved.
+    ///
+    /// The app used to load once and reload only when a proposal was accepted, which was
+    /// merely stale while everything was read-only. Now that the app writes, an impact
+    /// analysis run against a stale copy is a confident wrong answer shown immediately
+    /// before a commit — so this checks, the way the MCP server has always had to.
     pub(crate) fn read<T>(&self, f: impl FnOnce(&World) -> T) -> Result<T, String> {
-        let guard = self.world.lock().map_err(|_| "world state is poisoned".to_string())?;
-        let world = guard.as_ref().ok_or_else(|| "no world is open".to_string())?;
-        Ok(f(world))
+        let mut guard = self.world.lock().map_err(|_| "world state is poisoned".to_string())?;
+        let open = guard.as_mut().ok_or_else(|| "no world is open".to_string())?;
+
+        let current = wb_store::freshness::fingerprint(&open.world.root);
+        if current != open.fingerprint {
+            // A reload that fails is not fatal — a half-saved file in the writer's own
+            // editor should not take the app down. The last good world keeps answering.
+            if let Ok(world) = load(&open.world.root) {
+                open.world = world;
+            }
+            open.fingerprint = current;
+        }
+        Ok(f(&open.world))
+    }
+
+    /// Act on the world's files, then reload from disk and swap the result in.
+    ///
+    /// The lock is held across the write and the reload, so no command can observe a
+    /// world that disagrees with the disk. Deliberately not `write(|&mut World|)`: the
+    /// world is *derived* from the files, and mutating it in memory and serializing
+    /// afterwards would invert that.
+    pub(crate) fn commit<T>(
+        &self,
+        f: impl FnOnce(&World) -> Result<T, String>,
+    ) -> Result<(T, WorldSummary), String> {
+        let mut guard = self.world.lock().map_err(|_| "world state is poisoned".to_string())?;
+        let open = guard.as_mut().ok_or_else(|| "no world is open".to_string())?;
+
+        let outcome = f(&open.world)?;
+
+        let root = open.world.root.clone();
+        let reloaded = load(&root).map_err(|e| {
+            format!(
+                "the change was written, but the world no longer loads: {e}\n\
+                 Your files are on disk. Fix the error and reopen the world."
+            )
+        })?;
+        let summary = WorldSummary::of(&reloaded);
+        *open = Open { world: reloaded, fingerprint: wb_store::freshness::fingerprint(&root) };
+        Ok((outcome, summary))
+    }
+
+    fn open(&self, world: World) -> Result<WorldSummary, String> {
+        let mut guard = self.world.lock().map_err(|_| "world state is poisoned".to_string())?;
+        let summary = WorldSummary::of(&world);
+        let fingerprint = wb_store::freshness::fingerprint(&world.root);
+        *guard = Some(Open { world, fingerprint });
+        Ok(summary)
     }
 }
 
@@ -34,7 +91,7 @@ fn certainty(c: Containment) -> &'static str {
     }
 }
 
-fn primitive_name(p: Primitive) -> &'static str {
+pub(crate) fn primitive_name(p: Primitive) -> &'static str {
     match p {
         Primitive::Actor => "actor",
         Primitive::Polity => "polity",
@@ -58,6 +115,21 @@ pub struct WorldSummary {
     /// between them.
     pub change_points: Vec<i64>,
     pub undeclared_types: Vec<String>,
+    /// The type vocabulary, for the authoring form's type control. Open, not closed —
+    /// an undeclared type still loads, so the control offers these and accepts others.
+    pub types: Vec<TypeDto>,
+    /// Every id in the world, entities and events together, because they share one
+    /// namespace. Used to check a new id for collisions and to autocomplete references.
+    /// Deliberately not derived from a snapshot, which is filtered by date: checking
+    /// against that would let a writer create `place_marrow` on a day Marrow does not
+    /// exist and only discover the clash when they pressed save.
+    pub ids: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct TypeDto {
+    pub name: String,
+    pub primitive: &'static str,
 }
 
 impl WorldSummary {
@@ -79,6 +151,12 @@ impl WorldSummary {
             span: [lo - pad, hi + pad],
             change_points,
             undeclared_types: world.undeclared_types().keys().cloned().collect(),
+            types: world
+                .types
+                .values()
+                .map(|t| TypeDto { name: t.name.clone(), primitive: primitive_name(t.primitive) })
+                .collect(),
+            ids: world.entities.keys().chain(world.events.keys()).cloned().collect(),
         }
     }
 }
@@ -280,7 +358,7 @@ fn summarize(world: &World, proposal: &wb_propose::Proposal) -> ProposalDto {
 
 /// Only the lines that changed. Full context would drown a side panel, and the file is
 /// on disk for anyone who wants to read the rest.
-fn changed_lines(before: &str, after: &str) -> Vec<DiffLine> {
+pub(crate) fn changed_lines(before: &str, after: &str) -> Vec<DiffLine> {
     use similar::ChangeTag;
     similar::TextDiff::from_lines(before, after)
         .iter_all_changes()
@@ -298,10 +376,10 @@ fn changed_lines(before: &str, after: &str) -> Vec<DiffLine> {
 
 #[tauri::command]
 pub fn list_proposals(state: State<'_, AppState>) -> Result<Vec<ProposalDto>, String> {
-    let guard = state.world.lock().map_err(|_| "world state is poisoned".to_string())?;
-    let world = guard.as_ref().ok_or_else(|| "no world is open".to_string())?;
-    let proposals = wb_propose::store::load_all(&world.root).map_err(|e| e.to_string())?;
-    Ok(proposals.iter().map(|p| summarize(world, p)).collect())
+    state.read(|world| {
+        let proposals = wb_propose::store::load_all(&world.root).map_err(|e| e.to_string())?;
+        Ok(proposals.iter().map(|p| summarize(world, p)).collect())
+    })?
 }
 
 #[tauri::command]
@@ -309,9 +387,10 @@ pub fn proposal_detail(
     id: String,
     state: State<'_, AppState>,
 ) -> Result<ProposalDetailDto, String> {
-    let guard = state.world.lock().map_err(|_| "world state is poisoned".to_string())?;
-    let world = guard.as_ref().ok_or_else(|| "no world is open".to_string())?;
+    state.read(|world| detail_of(world, &id))?
+}
 
+fn detail_of(world: &World, id: &str) -> Result<ProposalDetailDto, String> {
     let proposal = wb_propose::store::load_all(&world.root)
         .map_err(|e| e.to_string())?
         .into_iter()
@@ -358,35 +437,31 @@ pub fn decide_proposal(
     accept: bool,
     state: State<'_, AppState>,
 ) -> Result<WorldSummary, String> {
-    let mut guard = state.world.lock().map_err(|_| "world state is poisoned".to_string())?;
-    let root = guard.as_ref().ok_or_else(|| "no world is open".to_string())?.root.clone();
+    // Rejecting only rewrites the proposal's own status, so it needs no reload — but it
+    // goes through `commit` anyway, because the queue's impact figures are computed
+    // against the current world and a decision is exactly when they should be refreshed.
+    state
+        .commit(|world| {
+            let mut proposal = wb_propose::store::load_all(&world.root)
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .find(|p| p.id == id)
+                .ok_or_else(|| format!("no proposal `{id}`"))?;
 
-    let mut proposal = wb_propose::store::load_all(&root)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .find(|p| p.id == id)
-        .ok_or_else(|| format!("no proposal `{id}`"))?;
-
-    if !accept {
-        wb_propose::reject(&mut proposal).map_err(|e| e.to_string())?;
-        return Ok(WorldSummary::of(guard.as_ref().expect("world present")));
-    }
-
-    wb_propose::accept(guard.as_ref().expect("world present"), &mut proposal)
-        .map_err(|e| e.to_string())?;
-
-    let reloaded = load(&root).map_err(|e| e.to_string())?;
-    let summary = WorldSummary::of(&reloaded);
-    *guard = Some(reloaded);
-    Ok(summary)
+            if accept {
+                wb_propose::accept(world, &mut proposal).map_err(|e| e.to_string())?;
+            } else {
+                wb_propose::reject(&mut proposal).map_err(|e| e.to_string())?;
+            }
+            Ok(())
+        })
+        .map(|(_, summary)| summary)
 }
 
 #[tauri::command]
 pub fn open_world(path: String, state: State<'_, AppState>) -> Result<WorldSummary, String> {
     let world = load(PathBuf::from(&path)).map_err(|e| e.to_string())?;
-    let summary = WorldSummary::of(&world);
-    *state.world.lock().map_err(|_| "world state is poisoned".to_string())? = Some(world);
-    Ok(summary)
+    state.open(world)
 }
 
 /// Where the bundled example world lives, so a first run has something to open.

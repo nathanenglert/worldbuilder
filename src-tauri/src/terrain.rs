@@ -235,3 +235,26 @@ pub fn terrain(state: State<'_, AppState>) -> Result<Option<TerrainDto>, String>
         Err(e) => Err(e.to_string()),
     })?
 }
+
+/// Just the per-record ground, for after a marker moves.
+///
+/// The terrain itself is cached and does not change — but `places` is a join of every
+/// entity's marker against it, so placing a marker adds an entry. Refetching the whole
+/// `terrain` payload to learn that would re-serialize a few thousand cell polygons,
+/// rivers and coastline across the bridge to recompute one small map.
+#[tauri::command]
+pub fn terrain_places(state: State<'_, AppState>) -> Result<BTreeMap<String, PlaceDto>, String> {
+    state.read(|world| match world.terrain() {
+        Ok(Some(t)) => {
+            let mut places = BTreeMap::new();
+            for entity in world.entities.values() {
+                let Some(marker) = entity.marker else { continue };
+                let Some(place) = t.describe(marker) else { continue };
+                places.insert(entity.id.clone(), PlaceDto::of(&t, &place));
+            }
+            Ok(places)
+        }
+        Ok(None) => Ok(BTreeMap::new()),
+        Err(e) => Err(e.to_string()),
+    })?
+}

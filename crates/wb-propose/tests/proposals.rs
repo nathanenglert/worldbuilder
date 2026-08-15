@@ -103,7 +103,7 @@ fn simulating_never_touches_the_world_it_was_given() {
 // ------------------------------------------------------------ preview
 
 #[test]
-fn preview_rewrites_frontmatter_and_keeps_the_prose() {
+fn preview_patches_the_frontmatter_and_keeps_the_prose() {
     let world = vashen();
     let edits = preview(&world, &by_id("prp_resolve_aldric")).unwrap();
 
@@ -112,6 +112,7 @@ fn preview_rewrites_frontmatter_and_keeps_the_prose() {
     assert!(edit.path.ends_with("aldric-vane.md"));
     assert!(!edit.is_new());
     assert!(edit.changes_anything());
+    assert!(!edit.reformats(), "the writer's own formatting is kept");
 
     assert!(edit.after.contains("@evt_siege_of_marrow+1y"), "the new date is written");
     assert!(edit.after.contains("Fourth of his name"), "the prose body survives");
@@ -209,24 +210,74 @@ fn rejecting_records_the_decision_without_touching_the_world() {
     );
 }
 
-/// The guard that exists because this tool holds people's life's work.
+/// The promise that exists because this tool holds people's life's work.
+///
+/// This used to be a refusal: a key the model did not understand blocked the write
+/// outright, because rewriting the frontmatter canonically would have dropped it. Now
+/// the applier patches in place, so the key is simply carried through — which is the
+/// same promise kept better. `WouldDropKey` still stands behind the canonical fallback,
+/// for the files this writer will not risk patching.
 #[test]
-fn a_key_the_model_does_not_understand_blocks_the_write() {
+fn a_key_the_model_does_not_understand_is_carried_through_untouched() {
     let root = scratch_world("unknown-key");
     let path = root.join("entities/actors/aldric-vane.md");
     let text = fs::read_to_string(&path).unwrap();
     fs::write(&path, text.replacen("---\n", "---\nprivate_notes: do not lose me\n", 1)).unwrap();
 
     let world = load(&root).unwrap();
-    let proposal =
+    let mut proposal =
         store::load_all(&root).unwrap().into_iter().find(|p| p.id == "prp_resolve_aldric").unwrap();
 
-    let err = preview(&world, &proposal).unwrap_err();
+    let edits = preview(&world, &proposal).expect("the unknown key no longer blocks the write");
+    let edit = edits.iter().find(|e| e.path == path).expect("aldric's file is edited");
+    assert!(edit.after.contains("private_notes: do not lose me"), "got:\n{}", edit.after);
+    assert!(!edit.reformats(), "the file should have been patched, not rewritten");
+
+    accept(&world, &mut proposal).expect("accepts");
+    let written = fs::read_to_string(&path).unwrap();
     assert!(
-        matches!(&err, wb_propose::Error::WouldDropKey { key, .. } if key == "private_notes"),
-        "got {err}"
+        written.contains("private_notes: do not lose me"),
+        "the key was lost on the way to disk"
     );
-    assert!(fs::read_to_string(&path).unwrap().contains("private_notes"), "nothing was written");
+}
+
+/// A one-field change now reads as a one-field diff, which is the review queue's whole
+/// selling point: an impact analysis nobody can find inside a reformat is not much use.
+#[test]
+fn accepting_a_proposal_changes_only_the_lines_it_means_to() {
+    let root = scratch_world("narrow-diff");
+    let path = root.join("entities/actors/aldric-vane.md");
+    let before = fs::read_to_string(&path).unwrap();
+
+    let world = load(&root).unwrap();
+    let mut proposal =
+        store::load_all(&root).unwrap().into_iter().find(|p| p.id == "prp_resolve_aldric").unwrap();
+    accept(&world, &mut proposal).expect("accepts");
+
+    let after = fs::read_to_string(&path).unwrap();
+    let old: Vec<&str> = before.lines().collect();
+    let new: Vec<&str> = after.lines().collect();
+    assert_eq!(old.len(), new.len(), "the line count moved:\n{after}");
+    let changed = (0..old.len()).filter(|&i| old[i] != new[i]).count();
+    assert_eq!(changed, 1, "expected one changed line, got {changed}:\n{after}");
+}
+
+/// The comments in a file the queue touches are the writer's, not the queue's.
+#[test]
+fn accepting_a_proposal_keeps_the_comments_in_the_file_it_edits() {
+    let root = scratch_world("keeps-comments");
+    let path = root.join("entities/actors/aldric-vane.md");
+    let text = fs::read_to_string(&path).unwrap();
+    fs::write(&path, text.replacen("---\n", "---\n# the parish register is water-damaged\n", 1))
+        .unwrap();
+
+    let world = load(&root).unwrap();
+    let mut proposal =
+        store::load_all(&root).unwrap().into_iter().find(|p| p.id == "prp_resolve_aldric").unwrap();
+    accept(&world, &mut proposal).expect("accepts");
+
+    let after = fs::read_to_string(&path).unwrap();
+    assert!(after.contains("# the parish register is water-damaged"), "got:\n{after}");
 }
 
 // ------------------------------------------------------------ rejected changes

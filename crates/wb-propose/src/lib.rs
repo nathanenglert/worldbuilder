@@ -21,10 +21,14 @@
 //! }
 //! ```
 //!
-//! **One limitation, stated plainly.** Applying rewrites a record's frontmatter
-//! canonically, so comments inside frontmatter do not survive. Prose bodies are
-//! preserved verbatim, a key the model does not understand is refused rather than
-//! dropped, and every write is an ordinary git diff the writer can inspect or revert.
+//! **What accepting costs the file.** Nothing, in the ordinary case: applying patches a
+//! record in place through [`wb_store::write`], so comments, inline style, key order,
+//! keys this version does not model, and the prose body all survive, and a one-field
+//! change is a one-line diff. When a file uses YAML the writer will not risk patching —
+//! anchors, aliases, merge keys — it says so on the [`FileEdit`] before anything is
+//! written, and falls back to a canonical rewrite that would drop comments; a key the
+//! model does not understand blocks *that* path rather than being dropped. Every write
+//! is an ordinary git diff the writer can inspect or revert.
 
 pub mod apply;
 pub mod error;
@@ -34,7 +38,7 @@ pub mod store;
 
 pub use apply::{FileEdit, preview, simulate};
 pub use error::{Error, Result};
-pub use impact::{Impact, impact};
+pub use impact::{Impact, impact, impact_between};
 pub use model::{Change, Proposal, Status};
 
 use std::path::PathBuf;

@@ -12,7 +12,10 @@ use crate::apply::simulate;
 use crate::error::Result;
 use crate::model::Proposal;
 
-#[derive(Debug, Clone, Serialize)]
+/// `Default` is the empty verdict — nothing settled, nothing broken. Used by the
+/// paths that legitimately have no consistency question to ask, such as moving a
+/// marker: no rule reads geometry, so running the check would imply one might.
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct Impact {
     /// Findings the proposal clears.
     pub resolved: Vec<Finding>,
@@ -42,8 +45,17 @@ fn identity(finding: &Finding) -> String {
 }
 
 pub fn impact(world: &World, proposal: &Proposal) -> Result<Impact> {
+    Ok(impact_between(world, &simulate(world, proposal)?))
+}
+
+/// The same comparison, between two worlds that already exist.
+///
+/// The app's own edits are not proposals and never become one, but "what does this
+/// settle, what does it break" is the same question and deserves the same answer — so
+/// the arithmetic lives here rather than being reimplemented against a fake proposal.
+pub fn impact_between(world: &World, edited: &World) -> Impact {
     let before = wb_check::check(world);
-    let after = wb_check::check(&simulate(world, proposal)?);
+    let after = wb_check::check(edited);
 
     let before_keys: Vec<String> = before.findings.iter().map(identity).collect();
     let after_keys: Vec<String> = after.findings.iter().map(identity).collect();
@@ -64,5 +76,5 @@ pub fn impact(world: &World, proposal: &Proposal) -> Result<Impact> {
         .map(|(finding, _)| finding.clone())
         .collect();
 
-    Ok(Impact { resolved, introduced, before: before.counts(), after: after.counts() })
+    Impact { resolved, introduced, before: before.counts(), after: after.counts() }
 }
