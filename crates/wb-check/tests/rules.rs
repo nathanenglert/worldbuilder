@@ -79,6 +79,7 @@ fn def() -> WorldDef {
         calendar: calendar(),
         fuzz: Fuzz::default(),
         map: None,
+        manuscript: None,
         types: Vec::new(),
         rules: Rules::default(),
     }
@@ -88,6 +89,7 @@ fn ent(id: &str) -> Entity {
     Entity {
         id: id.into(),
         name: id.into(),
+        aliases: Vec::new(),
         type_name: "thing".into(),
         existence: None,
         parents: Vec::new(),
@@ -128,7 +130,7 @@ fn evt(id: &str, date: &str, participants: &[&str]) -> Event {
 }
 
 fn world(entities: Vec<Entity>, events: Vec<Event>) -> World {
-    World::assemble(PathBuf::from("."), def(), entities, events).expect("assemble")
+    World::assemble(PathBuf::from("."), def(), entities, events, Vec::new()).expect("assemble")
 }
 
 fn only(world: &World, rule: Rule) -> (Certainty, String) {
@@ -201,6 +203,7 @@ fn attributes_declared_multi_valued_are_exempt() {
         definition,
         vec![guild, ent("act_a"), ent("act_b")],
         vec![],
+        Vec::new(),
     )
     .unwrap();
     assert_eq!(check(&w).of_rule(Rule::ConflictingFacts).count(), 0);

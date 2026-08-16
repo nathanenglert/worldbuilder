@@ -22,7 +22,11 @@ use std::path::Path;
 /// Folders whose contents can change what a query answers. `map` is here because a
 /// redrawn coastline changes what the ground under a settlement is, and `world.yaml`
 /// alone would not notice.
-const WATCHED: [&str; 4] = ["entities", "events", "proposals", "map"];
+///
+/// The *manuscript* is deliberately absent: it lives outside the world root by design,
+/// and a novel being edited in Scrivener would otherwise reload the world on every
+/// keystroke. Prose is fingerprinted separately, where it is read.
+const WATCHED: [&str; 5] = ["entities", "events", "scenes", "proposals", "map"];
 
 /// A stamp over the whole world tree: paths, sizes, and modification times.
 ///

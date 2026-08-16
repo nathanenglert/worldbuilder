@@ -11,7 +11,7 @@
 
 use std::path::PathBuf;
 
-use crate::model::{Entity, Event, Primitive};
+use crate::model::{Entity, Event, Primitive, Scene};
 use crate::world::World;
 
 /// A filename-safe form of a display name: lowercase, ASCII alphanumerics, single dashes.
@@ -67,6 +67,18 @@ pub fn event_path(world: &World, event: &Event) -> PathBuf {
         .map(|d| world.calendar.from_day(d).year)
         .unwrap_or(0);
     world.root.join("events").join(format!("{:04}-{}.yaml", year, slug(&event.name)))
+}
+
+/// Scenes are filed flat under `scenes/`, always YAML.
+///
+/// Deliberately *not* dated like events. A folder listing sorted by date would fight the
+/// only order a writer thinks about their chapters in, and the reading order is derived
+/// from the manuscript anyway — so the filename is left to say what the scene is.
+pub fn scene_path(world: &World, scene: &Scene) -> PathBuf {
+    if !scene.source.as_os_str().is_empty() {
+        return scene.source.clone();
+    }
+    world.root.join("scenes").join(format!("{}.yaml", slug(&scene.name)))
 }
 
 #[cfg(test)]

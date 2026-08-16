@@ -23,6 +23,13 @@ calendar:
 # How far a `~` widens a date, in days, by the precision it was written at.
 fuzz: { year: 730, month: 30, day: 3 }
 
+# The book. Outside the world folder on purpose — it belongs to Scrivener or Obsidian or
+# Word, and this tool reads it and never writes it. Declaring the root once is what keeps
+# every scene's link short and what makes the one path allowed to leave this folder
+# visible in a diff.
+manuscript:
+  root: ../manuscript
+
 # The map, and how to read it. Everything below `terrain` is a dial the writer owns;
 # what comes out of it — coastline, cells, rivers, biomes — is derived and cached under
 # .worldbuilder/, never committed, and rebuilt whenever one of these numbers moves.

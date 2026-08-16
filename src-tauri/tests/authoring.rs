@@ -50,6 +50,7 @@ fn marrow_draft(world: &World) -> EntityDraft {
     EntityDraft {
         id: e.id.clone(),
         name: e.name.clone(),
+        aka: e.aliases.clone(),
         type_name: e.type_name.clone(),
         existence_from: e.existence.as_ref().map(|s| s.from.to_string()),
         existence_to: e.existence.as_ref().and_then(|s| match &s.to {
@@ -242,6 +243,7 @@ fn leaving_the_dates_empty_does_not_invent_an_existence() {
     let draft = EntityDraft {
         id: "place_greyford".into(),
         name: "Greyford".into(),
+        aka: Vec::new(),
         type_name: "city".into(),
         existence_from: None,
         existence_to: None,

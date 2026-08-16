@@ -316,3 +316,86 @@ fn a_record_does_not_reference_itself() {
         );
     }
 }
+
+// ------------------------------------------------------------ scenes
+
+/// Scenes load from their own folder into their own map. The counts for entities and
+/// events must not move: a scene is where the *telling* touches the world, not another
+/// thing that happened in it, and folding the book's chapters into `events` would put
+/// them on the history track and quietly change what `event_count` means.
+#[test]
+fn scenes_load_without_disturbing_the_counts() {
+    let world = vashen();
+    assert_eq!(world.scenes.len(), 3);
+    assert_eq!(world.entities.len(), 11, "scenes are not entities");
+    assert_eq!(world.events.len(), 3, "scenes are not events");
+
+    let breach = &world.scenes["scn_the_breach"];
+    assert_eq!(breach.location.as_deref(), Some("place_marrow"));
+    assert_eq!(breach.pov, None, "a scene need not be anybody's point of view");
+    assert!(breach.source.ends_with("the-breach.yaml"));
+}
+
+/// The link is stored exactly as the writer typed it — relative to the manuscript root,
+/// fragment and all. Resolving it to an absolute path at load would bake this machine's
+/// filesystem into a record that is meant to travel in git.
+#[test]
+fn a_scene_keeps_its_manuscript_link_verbatim() {
+    let world = vashen();
+    assert_eq!(
+        world.scenes["scn_gate_at_dusk"].prose.as_deref(),
+        Some("ch01-the-wall.md#the-gate-at-dusk")
+    );
+    assert_eq!(
+        world.manuscript.as_ref().map(|m| m.root.as_path()),
+        Some(std::path::Path::new("../manuscript"))
+    );
+}
+
+/// A scene anchored to an event resolves to that event's date, which is what makes
+/// re-dating the siege drag chapter twelve along with it.
+#[test]
+fn a_scene_can_anchor_its_date_to_an_event() {
+    let world = vashen();
+    let breach = world.resolved_node("scn_the_breach").expect("the scene resolves");
+    let siege = world.resolved_node("evt_siege_of_marrow").expect("the event resolves");
+    assert_eq!(breach.nominal, siege.nominal);
+    assert_eq!(breach.earliest, siege.earliest, "and it inherits the doubt, not just the day");
+}
+
+/// Scenes share the one id namespace with entities and events, so an anchor is never
+/// ambiguous about what it points at.
+#[test]
+fn a_scene_cannot_take_an_id_an_event_already_has() {
+    let world = vashen();
+    let mut clash = world.scenes["scn_the_breach"].clone();
+    clash.id = "evt_siege_of_marrow".into();
+
+    let err = world.with_scene(clash).expect_err("the collision is refused");
+    assert!(format!("{err}").contains("duplicate id"), "got: {err}");
+}
+
+/// `Scene.source` is the scene's own file, so a `source:` key would deserialize as an
+/// unknown field, be dropped, and leave the writer looking at a link nothing reads.
+#[test]
+fn a_scene_that_says_source_instead_of_prose_is_refused_by_name() {
+    let dir = std::env::temp_dir().join(format!("wb-scene-source-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("scenes")).unwrap();
+    std::fs::copy(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/vashen/world.yaml"),
+        dir.join("world.yaml"),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("scenes/stray.yaml"),
+        "id: scn_stray\nname: Stray\ndate: \"0812\"\nsource: ch01.md#one\n",
+    )
+    .unwrap();
+
+    let err = load(&dir).expect_err("the file is refused rather than silently half-read");
+    let message = format!("{err}");
+    assert!(message.contains("`prose:`"), "the message must name the right key: {message}");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

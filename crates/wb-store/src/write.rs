@@ -40,14 +40,15 @@ use wb_core::DateExpr;
 
 use crate::error::{Error, Result};
 use crate::frontmatter;
-use crate::model::{Entity, Event, Fact};
+use crate::model::{Entity, Event, Fact, Scene};
 use crate::yaml::emit;
 use crate::yaml::scan::{self, Entry, Style};
 
 /// Frontmatter keys the entity model understands, in the order a fresh file writes them.
-pub const ENTITY_KEYS: [&str; 8] =
-    ["id", "name", "type", "existence", "parents", "facts", "marker", "shape"];
+pub const ENTITY_KEYS: [&str; 9] =
+    ["id", "name", "aka", "type", "existence", "parents", "facts", "marker", "shape"];
 pub const EVENT_KEYS: [&str; 6] = ["id", "name", "kind", "date", "participants", "location"];
+pub const SCENE_KEYS: [&str; 7] = ["id", "name", "date", "pov", "on_page", "location", "prose"];
 
 /// How much of the writer's original text a render managed to keep.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,6 +102,20 @@ pub fn render_event(path: &Path, original: Option<&str>, desired: &Event) -> Res
         Ok(text) => Ok(Rendered { text, fidelity: Fidelity::Preserved }),
         Err(reason) => Ok(Rendered {
             text: canonical_event(path, desired)?,
+            fidelity: Fidelity::Reformatted { reason, comments_lost: comments_in(original) },
+        }),
+    }
+}
+
+pub fn render_scene(path: &Path, original: Option<&str>, desired: &Scene) -> Result<Rendered> {
+    let Some(original) = original else {
+        return Ok(Rendered { text: fresh_scene(path, desired)?, fidelity: Fidelity::Created });
+    };
+
+    match patch_scene(path, original, desired) {
+        Ok(text) => Ok(Rendered { text, fidelity: Fidelity::Preserved }),
+        Err(reason) => Ok(Rendered {
+            text: canonical_scene(path, desired)?,
             fidelity: Fidelity::Reformatted { reason, comments_lost: comments_in(original) },
         }),
     }
@@ -185,6 +200,40 @@ fn patch_event(
     Ok(candidate)
 }
 
+fn patch_scene(
+    path: &Path,
+    original: &str,
+    desired: &Scene,
+) -> std::result::Result<String, String> {
+    let region = region_of(path, original)?;
+    let yaml = &original[region.start..region.end];
+    let mapping = gate(yaml)?;
+
+    let before: Scene = serde_yaml_bw::from_str(yaml)
+        .map_err(|e| format!("the file no longer parses as a scene: {e}"))?;
+
+    let entries = locate(original, region.clone(), &mapping)?;
+    let mut edits: Vec<(Range<usize>, String)> = Vec::new();
+
+    for key in SCENE_KEYS {
+        let existing = entries.iter().find(|e| e.key == key);
+        if !scene_differs(key, &before, desired) {
+            continue;
+        }
+        let field = scene_field(key, desired, existing);
+        plan(original, key, field, existing, &entries, &SCENE_KEYS, 0, &mut edits)?;
+    }
+
+    let candidate = splice(original, &mut edits)?;
+    let mut parsed: Scene = parse_back(path, &candidate)?;
+    parsed.source = desired.source.clone();
+    if parsed != *desired {
+        return Err("the patched file did not reparse to the intended scene".into());
+    }
+    check_comments(original, &candidate, &edits)?;
+    Ok(candidate)
+}
+
 /// What a key's value should become. `Absent` removes the key entirely.
 enum Field {
     Absent,
@@ -200,6 +249,7 @@ fn entity_differs(key: &str, before: &Entity, after: &Entity) -> bool {
     match key {
         "id" => before.id != after.id,
         "name" => before.name != after.name,
+        "aka" => before.aliases != after.aliases,
         "type" => before.type_name != after.type_name,
         "existence" => before.existence != after.existence,
         "parents" => before.parents != after.parents,
@@ -222,11 +272,58 @@ fn event_differs(key: &str, before: &Event, after: &Event) -> bool {
     }
 }
 
+/// Every key in [`SCENE_KEYS`] must appear here and in [`scene_field`]. A key missing from
+/// this one is never written; a key missing from that one is *deleted*, because `plan`
+/// reads `(Some(entry), Field::Absent)` as a removal. `every_scene_key_is_wired_end_to_end`
+/// is what keeps the three lists honest.
+fn scene_differs(key: &str, before: &Scene, after: &Scene) -> bool {
+    match key {
+        "id" => before.id != after.id,
+        "name" => before.name != after.name,
+        "date" => before.date != after.date,
+        "pov" => before.pov != after.pov,
+        "on_page" => before.on_page != after.on_page,
+        "location" => before.location != after.location,
+        "prose" => before.prose != after.prose,
+        _ => false,
+    }
+}
+
+fn scene_field(key: &str, s: &Scene, existing: Option<&Entry>) -> Field {
+    let flow = existing.map(|x| x.style == Style::Flow);
+    match key {
+        "id" => Field::Inline(emit::scalar(&s.id)),
+        "name" => Field::Inline(emit::scalar(&s.name)),
+        "date" => Field::Inline(emit::date(&s.date)),
+        "pov" => match &s.pov {
+            None => Field::Absent,
+            Some(id) => Field::Inline(emit::scalar(id)),
+        },
+        "on_page" if s.on_page.is_empty() => Field::Absent,
+        "on_page" if flow.unwrap_or(true) => Field::Inline(emit::ids(&s.on_page, Style::Flow, 0)),
+        "on_page" => Field::Block(emit::ids(&s.on_page, Style::Block, 0)),
+        "location" => match &s.location {
+            None => Field::Absent,
+            Some(id) => Field::Inline(emit::scalar(id)),
+        },
+        // Left bare: the `#` in `ch12.md#the-breach` only opens a comment when a space
+        // precedes it, and quoting every link would make the common case look escaped.
+        "prose" => match &s.prose {
+            None => Field::Absent,
+            Some(link) => Field::Inline(emit::scalar(link)),
+        },
+        _ => Field::Absent,
+    }
+}
+
 fn entity_field(key: &str, e: &Entity, existing: Option<&Entry>) -> Field {
     let flow = existing.map(|x| x.style == Style::Flow);
     match key {
         "id" => Field::Inline(emit::scalar(&e.id)),
         "name" => Field::Inline(emit::scalar(&e.name)),
+        "aka" if e.aliases.is_empty() => Field::Absent,
+        "aka" if flow.unwrap_or(true) => Field::Inline(emit::ids(&e.aliases, Style::Flow, 0)),
+        "aka" => Field::Block(emit::ids(&e.aliases, Style::Block, 0)),
         "type" => Field::Inline(emit::scalar(&e.type_name)),
         "existence" => match &e.existence {
             None => Field::Absent,
@@ -658,6 +755,10 @@ fn canonical_event(path: &Path, event: &Event) -> Result<String> {
     to_yaml(path, event)
 }
 
+fn canonical_scene(path: &Path, scene: &Scene) -> Result<String> {
+    to_yaml(path, scene)
+}
+
 // ---------------------------------------------------------------- new files
 
 /// A brand-new record, written the way the ones already in the folder are written.
@@ -673,6 +774,9 @@ fn fresh_entity(path: &Path, e: &Entity) -> Result<String> {
     let mut yaml = String::new();
     yaml.push_str(&format!("id: {}\n", emit::scalar(&e.id)));
     yaml.push_str(&format!("name: {}\n", emit::scalar(&e.name)));
+    if !e.aliases.is_empty() {
+        yaml.push_str(&format!("aka: {}\n", emit::ids(&e.aliases, Style::Flow, 0)));
+    }
     yaml.push_str(&format!("type: {}\n", emit::scalar(&e.type_name)));
     if let Some(span) = &e.existence {
         yaml.push_str(&format!("existence: {}\n", emit::span(span, Style::Flow, 0)));
@@ -739,5 +843,35 @@ fn fresh_event(path: &Path, e: &Event) -> Result<String> {
             canonical_event(path, e)
         }
         Err(_) => canonical_event(path, e),
+    }
+}
+
+fn fresh_scene(path: &Path, s: &Scene) -> Result<String> {
+    let mut yaml = String::new();
+    yaml.push_str(&format!("id: {}\n", emit::scalar(&s.id)));
+    yaml.push_str(&format!("name: {}\n", emit::scalar(&s.name)));
+    yaml.push_str(&format!("date: {}\n", emit::date(&s.date)));
+    if let Some(pov) = &s.pov {
+        yaml.push_str(&format!("pov: {}\n", emit::scalar(pov)));
+    }
+    if !s.on_page.is_empty() {
+        yaml.push_str(&format!("on_page: {}\n", emit::ids(&s.on_page, Style::Flow, 0)));
+    }
+    if let Some(loc) = &s.location {
+        yaml.push_str(&format!("location: {}\n", emit::scalar(loc)));
+    }
+    if let Some(link) = &s.prose {
+        yaml.push_str(&format!("prose: {}\n", emit::scalar(link)));
+    }
+
+    match parse_back::<Scene>(path, &yaml) {
+        Ok(mut back) => {
+            back.source = s.source.clone();
+            if back == *s {
+                return Ok(yaml);
+            }
+            canonical_scene(path, s)
+        }
+        Err(_) => canonical_scene(path, s),
     }
 }

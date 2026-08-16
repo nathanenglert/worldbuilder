@@ -1,0 +1,10 @@
+# Chapter one opens six years before the siege, which is why the wall is still an
+# argument rather than a ruin. Dated to the month: the manuscript never says a day and
+# inventing one would be precision the book does not have.
+id: scn_gate_at_dusk
+name: The gate at dusk
+date: "0806-08"
+pov: act_aldric_vane
+on_page: [pol_vashen]
+location: place_marrow
+prose: ch01-the-wall.md#the-gate-at-dusk

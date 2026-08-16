@@ -1,0 +1,9 @@
+# Anchored to the siege rather than dated, so re-dating the event drags the chapter with
+# it. No `pov`: the scene follows the gate captain, who is not a record and does not need
+# to be — the world holds what the story leans on, not everyone who appears in it.
+id: scn_the_breach
+name: The breach
+date: "@evt_siege_of_marrow"
+location: place_marrow
+on_page: [pol_vashen, ter_vale_of_corrath]
+prose: ch12-the-siege.md#the-breach

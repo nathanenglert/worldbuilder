@@ -12,9 +12,12 @@ use crate::model::{Change, Proposal};
 
 /// Fields the model round-trips. Anything else in a file is the writer's, and refusing
 /// to drop it is the whole point of [`Error::WouldDropKey`].
-const ENTITY_KEYS: [&str; 8] =
-    ["id", "name", "type", "existence", "parents", "facts", "marker", "shape"];
-const EVENT_KEYS: [&str; 6] = ["id", "name", "kind", "date", "participants", "location"];
+///
+/// Taken from the writer rather than restated here. These lists were duplicated once, and
+/// a duplicated list of keys is a list that drifts: adding a field to the model and
+/// forgetting this copy makes the new key look unknown, so the guard fires on a canonical
+/// rewrite and refuses to write a file over a field the model itself just gained.
+use wb_store::write::{ENTITY_KEYS, EVENT_KEYS};
 
 /// A file the proposal would write, with its current contents for diffing.
 #[derive(Debug, Clone)]
@@ -50,11 +53,15 @@ pub fn simulate(world: &World, proposal: &Proposal) -> Result<World> {
 
     apply_changes(&proposal.id, &mut entities, &mut events, &proposal.changes)?;
 
+    // Scenes pass through untouched: no `Change` op names one, because an agent proposing
+    // edits to where a chapter sits in the book is not a world change — it is a note about
+    // the manuscript, which §8 keeps out of this tool's hands.
     Ok(World::assemble(
         world.root.clone(),
         world.definition(),
         entities.into_values().collect(),
         events.into_values().collect(),
+        world.scenes.values().cloned().collect(),
     )?)
 }
 
@@ -77,6 +84,7 @@ fn apply_changes(
                     Entity {
                         id: id.clone(),
                         name: name.clone(),
+                        aliases: Vec::new(),
                         type_name: type_name.clone(),
                         existence: existence.clone(),
                         parents: parents.clone(),

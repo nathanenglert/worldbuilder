@@ -1,6 +1,9 @@
 ---
 id: ter_vale_of_corrath
 name: The Vale of Corrath
+# "the Vale" and nothing shorter. A bare "vale" would match the common noun, and a wrong
+# iceberg ratio is worse than a conservative one.
+aka: [the Vale]
 type: region
 shape:
   - [0.18, 0.34]

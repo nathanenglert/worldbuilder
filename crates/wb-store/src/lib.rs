@@ -25,6 +25,7 @@ pub mod frontmatter;
 pub mod load;
 pub mod model;
 pub mod paths;
+pub mod sandbox;
 pub mod terrain;
 pub mod world;
 pub mod write;
@@ -32,5 +33,8 @@ pub mod yaml;
 
 pub use error::{Error, Result};
 pub use load::load;
-pub use model::{Entity, Event, Fact, MapSpec, Primitive, Rules, Span, TypeDef, Value, WorldDef};
+pub use model::{
+    Entity, Event, Fact, ManuscriptSpec, MapSpec, Primitive, Rules, Scene, Span, TypeDef, Value,
+    WorldDef,
+};
 pub use world::{EntityView, FactAt, Hit, Reference, Snapshot, World};

@@ -116,6 +116,18 @@ pub struct Fact {
 pub struct Entity {
     pub id: String,
     pub name: String,
+    /// What else the prose calls this. `Aldric Vane` is also `Aldric`; `The Vale of
+    /// Corrath` is also `the Vale`.
+    ///
+    /// A first-class list rather than a fact, following `parents:`. As a fact it would be
+    /// multi-valued, so every world would have to remember to list `aka` under
+    /// `rules.multi_valued` or watch the consistency engine call two nicknames a
+    /// contradiction — a footgun dressed as a feature.
+    ///
+    /// Purely for finding the entity in prose. Nothing renders from it, so leaving it
+    /// empty costs a writer only the mentions their book spells differently.
+    #[serde(rename = "aka", default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
     #[serde(rename = "type")]
     pub type_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -191,6 +203,61 @@ impl Rules {
     }
 }
 
+/// Where the manuscript is, and in what order it reads.
+///
+/// The one path in a world allowed to point outside the world folder, and it is declared
+/// once rather than repeated on every scene. That is the whole reason it exists: the
+/// escape is visible in `world.yaml` and reviewable in a diff, instead of hiding as a
+/// `../` in each of two hundred records — and when the book moves, one line moves with it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManuscriptSpec {
+    /// Relative to the world root, and the only path resolved outside it.
+    pub root: PathBuf,
+    /// Chapter files in reading order. Empty means lexical filename order, which is
+    /// right whenever a writer numbers their chapters and wrong the moment they reach
+    /// `ch10` without zero-padding — hence the escape hatch.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub order: Vec<String>,
+}
+
+/// A scene: a stretch of the book, placed in the world.
+///
+/// The one record type that points *out* of the world folder. Everything about it is
+/// deliberately thin — the prose is the writer's, lives in Scrivener or Obsidian or Word,
+/// and is never copied here, never edited here, and never depended on for the record to
+/// be valid. A scene with a broken link is still a scene; it just has nothing to read.
+///
+/// Scenes are their own record type rather than events carrying two extra keys. An event
+/// is something that happened in the world; a scene is a place the *telling* touches it,
+/// and conflating them would put the book's chapters onto the history track and change
+/// what `event_count` means.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Scene {
+    pub id: String,
+    pub name: String,
+    /// When it is set, in world time. The one field a scene cannot do without — a scene
+    /// with no date cannot be checked against anything, which is the point of having it.
+    pub date: DateExpr,
+    /// Whose eyes it is seen through.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pov: Option<String>,
+    /// Who else is on the page. Not `participants`: an event's participants *did* the
+    /// thing, whereas a scene's cast is simply who appears, which is weaker evidence and
+    /// is treated as such.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub on_page: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
+    /// `ch12.md#scene-3`, relative to the manuscript root. Read-only, always.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prose: Option<String>,
+
+    /// The file this scene was loaded from — not the prose it points at.
+    #[serde(skip)]
+    pub source: PathBuf,
+}
+
 /// `world.yaml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldDef {
@@ -200,6 +267,11 @@ pub struct WorldDef {
     /// map is still a world, and every reader has to cope with that anyway.
     #[serde(default)]
     pub map: Option<MapSpec>,
+    /// Absent is the normal case. A world with no manuscript is not an incomplete world;
+    /// it is a world whose iceberg is entirely below the waterline, which is a true and
+    /// useful thing to be told.
+    #[serde(default)]
+    pub manuscript: Option<ManuscriptSpec>,
     #[serde(default)]
     pub fuzz: Fuzz,
     #[serde(default)]

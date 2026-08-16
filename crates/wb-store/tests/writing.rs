@@ -8,8 +8,9 @@
 
 use std::path::{Path, PathBuf};
 
-use wb_store::write::{Fidelity, render_entity, render_event};
-use wb_store::{Entity, Value, World, load};
+use wb_core::parse_date;
+use wb_store::write::{Fidelity, render_entity, render_event, render_scene};
+use wb_store::{Entity, Scene, Value, World, load};
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/vashen")
@@ -67,6 +68,62 @@ fn every_record_in_the_example_world_survives_a_no_op_save_byte_for_byte() {
             event.source.display()
         );
         assert_eq!(out.text, original, "{} was not left alone", event.source.display());
+    }
+
+    for scene in world.scenes.values() {
+        let original = text_of(&scene.source);
+        let out = render_scene(&scene.source, Some(&original), scene).expect("renders");
+        assert_eq!(
+            out.fidelity,
+            Fidelity::Preserved,
+            "{} fell back to a canonical rewrite",
+            scene.source.display()
+        );
+        assert_eq!(out.text, original, "{} was not left alone", scene.source.display());
+    }
+}
+
+/// Every key in `SCENE_KEYS` must be wired into *both* `scene_differs` and `scene_field`,
+/// and the two failures look nothing alike: a key missing from the first is silently never
+/// written, and a key missing from the second is silently **deleted**, because a planner
+/// reading `Field::Absent` for a key that exists treats it as a removal.
+///
+/// So this changes each field in turn and asserts two things at once — that the change
+/// landed, and that the six fields nobody touched are all still in the file.
+#[test]
+fn every_scene_key_is_wired_end_to_end() {
+    let world = vashen();
+    let scene = world.scenes["scn_gate_at_dusk"].clone();
+    let original = text_of(&scene.source);
+
+    let mutations: Vec<(&str, Scene)> = vec![
+        ("id", Scene { id: "scn_renamed".into(), ..scene.clone() }),
+        ("name", Scene { name: "A different night".into(), ..scene.clone() }),
+        ("date", Scene { date: parse_date("0807-01").unwrap(), ..scene.clone() }),
+        ("pov", Scene { pov: Some("act_maren_vane".into()), ..scene.clone() }),
+        ("on_page", Scene { on_page: vec!["pol_corrath".into()], ..scene.clone() }),
+        ("location", Scene { location: Some("place_corrath_city".into()), ..scene.clone() }),
+        ("prose", Scene { prose: Some("ch02.md#elsewhere".into()), ..scene.clone() }),
+    ];
+
+    for (key, desired) in mutations {
+        let out = render_scene(&scene.source, Some(&original), &desired).expect("renders");
+        assert_eq!(out.fidelity, Fidelity::Preserved, "changing `{key}` forced a rewrite");
+        assert_ne!(out.text, original, "changing `{key}` wrote nothing — a missing `differs` arm");
+
+        let back: Scene = serde_yaml_bw::from_str(&out.text).expect("the result parses");
+        for other in wb_store::write::SCENE_KEYS {
+            assert!(
+                out.text.contains(&format!("\n{other}:"))
+                    || out.text.starts_with(&format!("{other}:")),
+                "changing `{key}` dropped `{other}` — a missing `scene_field` arm"
+            );
+        }
+        assert_eq!(
+            Scene { source: scene.source.clone(), ..back },
+            desired,
+            "changing `{key}` did not round-trip"
+        );
     }
 }
 
@@ -264,6 +321,7 @@ fn tabs_in_the_indentation_bail_out_instead_of_guessing() {
     let want = Entity {
         id: "place_x".into(),
         name: "Other".into(),
+        aliases: Vec::new(),
         type_name: "city".into(),
         existence: None,
         parents: Vec::new(),
@@ -316,6 +374,7 @@ fn a_new_file_is_rendered_canonically_and_says_so() {
     let entity = Entity {
         id: "place_new".into(),
         name: "New".into(),
+        aliases: Vec::new(),
         type_name: "city".into(),
         existence: None,
         parents: Vec::new(),
@@ -407,6 +466,7 @@ fn a_new_record_is_written_the_way_the_existing_ones_are() {
     let entity = Entity {
         id: "place_greyford".into(),
         name: "Greyford".into(),
+        aliases: Vec::new(),
         type_name: "city".into(),
         existence: Some(wb_store::Span {
             from: wb_core::parse_date("0602~").unwrap(),
@@ -439,4 +499,48 @@ fn a_new_record_is_written_the_way_the_existing_ones_are() {
     back.body = entity.body.clone();
     back.source = entity.source.clone();
     assert_eq!(back, entity);
+}
+
+/// Adding an alias to a record that had none is a one-line diff.
+///
+/// `aka` was the slice's second walk through the writer's field minefield, on the struct
+/// every other record type is not. The interesting half is the insertion point: `aka`
+/// ranks after `name` in `ENTITY_KEYS`, so it has to land there rather than at the end of
+/// the frontmatter, where it would read as an afterthought and diff as one.
+#[test]
+fn adding_an_alias_touches_one_line_and_lands_under_the_name() {
+    let world = vashen();
+    let mut marrow = marrow(&world);
+    let original = text_of(&marrow.source);
+    marrow.aliases = vec!["the wall town".into()];
+
+    let (text, fidelity) = rewrite(&marrow);
+    assert_eq!(fidelity, Fidelity::Preserved);
+
+    let added: Vec<&str> =
+        text.lines().filter(|line| !original.lines().any(|o| o == *line)).collect();
+    assert_eq!(added, vec!["aka: [the wall town]"], "one line, and written the inline way");
+
+    let lines: Vec<&str> = text.lines().collect();
+    let name = lines.iter().position(|l| l.starts_with("name:")).unwrap();
+    assert_eq!(lines[name + 1], "aka: [the wall town]", "it belongs directly under the name");
+}
+
+/// And taking it away again gets back to the original bytes exactly.
+#[test]
+fn removing_an_alias_leaves_no_trace_of_it() {
+    let world = vashen();
+    let aldric = world.entities["act_aldric_vane"].clone();
+    let original = text_of(&aldric.source);
+    assert!(!aldric.aliases.is_empty(), "the fixture is only meaningful with aliases on it");
+
+    let mut stripped = aldric.clone();
+    stripped.aliases.clear();
+    let (without, _) = rewrite(&stripped);
+    assert!(!without.contains("aka:"));
+
+    let out = render_entity(&aldric.source, Some(&without), &aldric).expect("renders");
+    let back: Vec<&str> = out.text.lines().filter(|l| l.starts_with("aka:")).collect();
+    assert_eq!(back, vec!["aka: [Aldric, the duke]"], "and putting it back writes it once");
+    assert!(original.contains("aka: [Aldric, the duke]"));
 }

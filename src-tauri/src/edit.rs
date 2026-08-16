@@ -50,6 +50,9 @@ pub struct FactDraft {
 pub struct EntityDraft {
     pub id: String,
     pub name: String,
+    /// What the prose calls this, beyond its name. Empty is the normal state.
+    #[serde(default)]
+    pub aka: Vec<String>,
     #[serde(rename = "type")]
     pub type_name: String,
     #[serde(default)]
@@ -125,6 +128,12 @@ impl EntityDraft {
         Ok(Entity {
             id: self.id,
             name: self.name,
+            aliases: self
+                .aka
+                .into_iter()
+                .map(|a| a.trim().to_string())
+                .filter(|a| !a.is_empty())
+                .collect(),
             type_name: self.type_name,
             existence,
             parents: self.parents,
@@ -346,6 +355,7 @@ fn read_if_present(path: &std::path::Path) -> Option<String> {
 pub struct EntityRecordDto {
     pub id: String,
     pub name: String,
+    pub aka: Vec<String>,
     #[serde(rename = "type")]
     pub type_name: String,
     pub primitive: Option<&'static str>,
@@ -421,6 +431,7 @@ impl EntityRecordDto {
         Self {
             id: entity.id.clone(),
             name: entity.name.clone(),
+            aka: entity.aliases.clone(),
             type_name: entity.type_name.clone(),
             primitive: world.primitive_of(entity).map(crate::commands::primitive_name),
             existence_from: entity.existence.as_ref().and_then(|s| shown(&s.from)),

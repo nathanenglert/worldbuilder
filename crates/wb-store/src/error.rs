@@ -25,6 +25,12 @@ pub enum Error {
     #[error("no world.yaml in {}", root.display())]
     NoWorldFile { root: PathBuf },
 
+    /// `Scene.source` is the scene's own file, so a `source:` key would parse as unknown,
+    /// be dropped, and leave the writer looking at a link the app cannot see. Refusing is
+    /// the only outcome that tells them anything.
+    #[error("{}: a scene links its prose with `prose:`, not `source:`", path.display())]
+    SceneSourceKey { path: PathBuf },
+
     #[error("the map image {} could not be read: {source}", path.display())]
     MapImage {
         path: PathBuf,

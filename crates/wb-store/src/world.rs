@@ -9,7 +9,9 @@ use wb_core::{
 };
 
 use crate::error::{Error, Result};
-use crate::model::{Entity, Event, Fact, MapSpec, Primitive, Rules, TypeDef, Value, WorldDef};
+use crate::model::{
+    Entity, Event, Fact, ManuscriptSpec, MapSpec, Primitive, Rules, Scene, TypeDef, Value, WorldDef,
+};
 
 /// One record naming another, and the way it names it.
 ///
@@ -74,9 +76,13 @@ pub struct World {
     pub rules: Rules,
     /// The map image and its pipeline settings, if this world has one.
     pub map: Option<MapSpec>,
+    /// Where the book is, if this world has one attached.
+    pub manuscript: Option<ManuscriptSpec>,
     pub types: BTreeMap<String, TypeDef>,
     pub entities: BTreeMap<String, Entity>,
     pub events: BTreeMap<String, Event>,
+    /// Keyed the same way, in the same shared id namespace.
+    pub scenes: BTreeMap<String, Scene>,
 
     resolved: BTreeMap<String, Resolved>,
     lifespans: BTreeMap<String, FuzzyInterval>,
@@ -92,6 +98,7 @@ impl World {
         def: WorldDef,
         entities: Vec<Entity>,
         events: Vec<Event>,
+        scenes: Vec<Scene>,
     ) -> Result<Self> {
         def.calendar.validate()?;
 
@@ -124,6 +131,23 @@ impl World {
             event_map.insert(ev.id.clone(), ev);
         }
 
+        let mut scene_map: BTreeMap<String, Scene> = BTreeMap::new();
+        for sc in scenes {
+            let clash = scene_map
+                .get(&sc.id)
+                .map(|p| p.source.clone())
+                .or_else(|| entity_map.get(&sc.id).map(|p| p.source.clone()))
+                .or_else(|| event_map.get(&sc.id).map(|p| p.source.clone()));
+            if let Some(first) = clash {
+                return Err(Error::DuplicateId {
+                    id: sc.id.clone(),
+                    first,
+                    second: sc.source.clone(),
+                });
+            }
+            scene_map.insert(sc.id.clone(), sc);
+        }
+
         let types: BTreeMap<String, TypeDef> =
             def.types.into_iter().map(|t| (t.name.clone(), t)).collect();
 
@@ -140,6 +164,12 @@ impl World {
         let mut nodes = NodeMap::new();
         for ev in event_map.values() {
             nodes.insert(ev.id.clone(), ev.date.clone());
+        }
+        // Scenes register as date nodes exactly as events do, which makes them anchorable:
+        // `from: "@scn_ch12_s03"` dates a fact from the scene where it happens. That falls
+        // out of §3.3's model at no cost, and re-dating a scene drags it along.
+        for sc in scene_map.values() {
+            nodes.insert(sc.id.clone(), sc.date.clone());
         }
         for e in entity_map.values() {
             let Some(span) = &e.existence else { continue };
@@ -190,6 +220,13 @@ impl World {
             spans_seen.push(Interval::inclusive(r.earliest, r.latest));
         }
 
+        // Scene dates are change points too. A scrubber that could not stop on the day a
+        // chapter happens would be the one place the story is invisible on the timeline.
+        for sc in scene_map.values() {
+            let r = resolved[&sc.id];
+            spans_seen.push(Interval::inclusive(r.earliest, r.latest));
+        }
+
         let change_points = change_points(spans_seen);
 
         Ok(Self {
@@ -199,9 +236,11 @@ impl World {
             fuzz: def.fuzz,
             rules: def.rules,
             map: def.map,
+            manuscript: def.manuscript,
             types,
             entities: entity_map,
             events: event_map,
+            scenes: scene_map,
             resolved,
             lifespans,
             fact_spans,
@@ -218,6 +257,7 @@ impl World {
             calendar: self.calendar.clone(),
             fuzz: self.fuzz,
             map: self.map.clone(),
+            manuscript: self.manuscript.clone(),
             types: self.types.values().cloned().collect(),
             rules: self.rules.clone(),
         }
@@ -233,37 +273,47 @@ impl World {
     pub fn with_entity(&self, entity: Entity) -> Result<World> {
         let mut entities = self.entities.clone();
         entities.insert(entity.id.clone(), entity);
-        self.reassemble(entities, self.events.clone())
+        self.reassemble(entities, self.events.clone(), self.scenes.clone())
     }
 
     pub fn with_event(&self, event: Event) -> Result<World> {
         let mut events = self.events.clone();
         events.insert(event.id.clone(), event);
-        self.reassemble(self.entities.clone(), events)
+        self.reassemble(self.entities.clone(), events, self.scenes.clone())
     }
 
-    /// This world without `id`, whether it names an entity or an event.
+    pub fn with_scene(&self, scene: Scene) -> Result<World> {
+        let mut scenes = self.scenes.clone();
+        scenes.insert(scene.id.clone(), scene);
+        self.reassemble(self.entities.clone(), self.events.clone(), scenes)
+    }
+
+    /// This world without `id`, whatever kind of record it names.
     ///
     /// Fails with an unresolvable-anchor error if anything still dates itself against the
     /// record being removed, which is the answer a delete confirmation wants.
     pub fn without(&self, id: &str) -> Result<World> {
         let mut entities = self.entities.clone();
         let mut events = self.events.clone();
+        let mut scenes = self.scenes.clone();
         entities.remove(id);
         events.remove(id);
-        self.reassemble(entities, events)
+        scenes.remove(id);
+        self.reassemble(entities, events, scenes)
     }
 
     fn reassemble(
         &self,
         entities: BTreeMap<String, Entity>,
         events: BTreeMap<String, Event>,
+        scenes: BTreeMap<String, Scene>,
     ) -> Result<World> {
         World::assemble(
             self.root.clone(),
             self.definition(),
             entities.into_values().collect(),
             events.into_values().collect(),
+            scenes.into_values().collect(),
         )
     }
 
@@ -314,6 +364,24 @@ impl World {
             }
             if anchors(&ev.date) {
                 out.push(Reference { by: ev.id.clone(), how: "date anchor" });
+            }
+        }
+
+        for sc in self.scenes.values() {
+            if sc.id == id {
+                continue;
+            }
+            if sc.pov.as_deref() == Some(id) {
+                out.push(Reference { by: sc.id.clone(), how: "pov" });
+            }
+            if sc.on_page.iter().any(|p| p == id) {
+                out.push(Reference { by: sc.id.clone(), how: "on the page" });
+            }
+            if sc.location.as_deref() == Some(id) {
+                out.push(Reference { by: sc.id.clone(), how: "scene location" });
+            }
+            if anchors(&sc.date) {
+                out.push(Reference { by: sc.id.clone(), how: "date anchor" });
             }
         }
 

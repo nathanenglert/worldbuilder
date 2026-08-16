@@ -11,7 +11,7 @@ use serde::de::DeserializeOwned;
 
 use crate::error::{Error, Result};
 use crate::frontmatter;
-use crate::model::{Entity, Event, WorldDef};
+use crate::model::{Entity, Event, Scene, WorldDef};
 use crate::world::World;
 
 const EXTENSIONS: [&str; 4] = ["md", "markdown", "yaml", "yml"];
@@ -44,7 +44,37 @@ pub fn load(root: impl AsRef<Path>) -> Result<World> {
         events.push(event);
     }
 
-    World::assemble(root.to_path_buf(), def, entities, events)
+    // Scenes carry no prose of their own — the prose is the manuscript's, and the scene
+    // only points at it — so the body a `.md` file would have is meaningless here and the
+    // folder is plain YAML.
+    let mut scenes = Vec::new();
+    for path in collect(&root.join("scenes"))? {
+        let yaml = read_text(&path)?;
+        guard_source_key(&path, &yaml)?;
+        let mut scene: Scene = parse_yaml(&path, &yaml)?;
+        scene.source = path;
+        scenes.push(scene);
+    }
+
+    World::assemble(root.to_path_buf(), def, entities, events, scenes)
+}
+
+/// Refuse a scene whose manuscript link is spelled `source:`.
+///
+/// Worth the extra parse because the failure it prevents is silent: `Scene::source` is
+/// `#[serde(skip)]`, so a `source:` key is not a field, is not an error, and is simply
+/// dropped — the writer would see their link in the file, the app would see no link at
+/// all, and nothing anywhere would say why.
+fn guard_source_key(path: &Path, yaml: &str) -> Result<()> {
+    let doc: serde_yaml_bw::Value = serde_yaml_bw::from_str(yaml)
+        .map_err(|e| Error::Yaml { path: path.to_path_buf(), message: e.to_string() })?;
+
+    if let serde_yaml_bw::Value::Mapping(map) = doc
+        && map.keys().any(|k| k.as_str() == Some("source"))
+    {
+        return Err(Error::SceneSourceKey { path: path.to_path_buf() });
+    }
+    Ok(())
 }
 
 /// Returns the YAML text and the prose body, which is empty for plain-YAML records.

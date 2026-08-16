@@ -1,6 +1,9 @@
 ---
 id: act_aldric_vane
 name: Aldric Vane
+# The book calls him Aldric and, on the wall, "the duke". Without these the iceberg would
+# report him as never reaching the page, which is the opposite of true.
+aka: [Aldric, the duke]
 type: noble
 existence: { from: "0771-06-12", to: "0811~" }
 parents: [act_maren_vane, act_isolde_corr]

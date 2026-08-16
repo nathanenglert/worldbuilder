@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 
 use schemars::JsonSchema;
 use serde::Serialize;
+use wb_store::sandbox::Denied;
 
 pub const DIR: &str = "notes";
 
@@ -87,44 +88,33 @@ pub fn read(root: &Path, requested: &str) -> Result<NoteBody, String> {
 
 /// Resolve a requested path inside `notes/`, or refuse.
 ///
-/// Checked after canonicalization rather than by inspecting the string: rejecting `..`
-/// textually misses the symlink case, and a world folder can perfectly reasonably
-/// contain symlinks the writer put there.
+/// The containment check itself lives in [`wb_store::sandbox`], which the manuscript
+/// reader shares. What stays here is the phrasing: an agent that has just been refused
+/// needs to be told about `list_notes`, and advice about `list_notes` would be useless
+/// attached to a chapter of somebody's novel.
 pub fn resolve(root: &Path, requested: &str) -> Result<PathBuf, String> {
     let notes = root.join(DIR);
-    let relative = Path::new(requested.trim());
-
-    if relative.is_absolute() {
-        return Err(format!(
-            "`{requested}` is an absolute path. Notes are addressed relative to the world \
-             folder, as `list_notes` returns them."
-        ));
-    }
 
     // Both spellings are accepted, since `list_notes` returns `notes/foo.md` and a model
     // reasonably shortens that to `foo.md`.
-    let candidate = match relative.strip_prefix(DIR) {
-        Ok(rest) => notes.join(rest),
-        Err(_) => notes.join(relative),
-    };
+    let relative = Path::new(requested.trim());
+    let stripped = relative.strip_prefix(DIR).unwrap_or(relative);
 
-    let base = notes
-        .canonicalize()
-        .map_err(|_| format!("this world has no `{DIR}/` folder to read from"))?;
-    let real = candidate
-        .canonicalize()
-        .map_err(|_| format!("no note at `{requested}`. Use `list_notes` to see what is there."))?;
-
-    if !real.starts_with(&base) {
-        return Err(format!(
+    wb_store::sandbox::resolve(&notes, &stripped.to_string_lossy()).map_err(|denied| match denied {
+        Denied::Absolute => format!(
+            "`{requested}` is an absolute path. Notes are addressed relative to the world \
+             folder, as `list_notes` returns them."
+        ),
+        Denied::NoBase => format!("this world has no `{DIR}/` folder to read from"),
+        Denied::Missing => {
+            format!("no note at `{requested}`. Use `list_notes` to see what is there.")
+        }
+        Denied::Outside => format!(
             "`{requested}` resolves outside the world's `{DIR}/` folder. This server reads \
              the writer's notes, not their disk."
-        ));
-    }
-    if !real.is_file() {
-        return Err(format!("`{requested}` is a folder, not a note."));
-    }
-    Ok(real)
+        ),
+        Denied::NotAFile => format!("`{requested}` is a folder, not a note."),
+    })
 }
 
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {

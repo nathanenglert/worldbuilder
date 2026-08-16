@@ -1,0 +1,10 @@
+# A flashback: second in the book, eight years earlier in the world. This is the record
+# that proves reading order and chronology are different orderings of the same scenes —
+# the timeline puts it first, the story path visits it second.
+id: scn_word_from_the_vale
+name: Word from the Vale
+date: "0798-04"
+pov: act_maren_vane
+on_page: [ter_vale_of_corrath]
+location: place_corrath_city
+prose: ch01-the-wall.md#word-from-the-vale
