@@ -49,10 +49,35 @@ of it is not what you overbuilt but what the story keeps reaching for that was n
 built. Every count shows the sentence it came from, because a number nobody can check is
 a number nobody should act on.
 
+**"What if" is a branch, and the diff is in records.** Your world is a folder of files, so
+forking canon is `git branch` — and Worldbuilder reports the fork the way a writer thinks
+about it: *"Aldric Vane — existence, and his death moves 810 days later; two open questions
+settled, none introduced."* A record can appear in that list with nothing changed in its own
+file and a date that moved anyway, because re-dating an event drags everything anchored to
+it. No `git diff` can tell you that. Branching is only offered when the world folder is
+itself the repository — a world nested inside a bigger one still gets its history and the
+comparison, and is told plainly why the rest is off.
+
+**Who followed whom, on the same axis as everything else.** A bloodline is people with
+parentage edges and overlapping lifespans; a dynasty is a title passing along them. So the
+lineage view is not a family tree — it is lifespans on a time axis, feathered where the
+dates are guesses, with a held title drawn as a band, which makes a succession gap
+literally a gap. It covers anything that changed hands: a duchy down three generations of
+Vanes, or a valley passing between two empires at a siege.
+
+**Hand it to someone as one file.** Export writes the whole world as a single
+self-contained HTML page — the map, the timeline, every record cross-linked, no server and
+no network. Three scopes: everything · *as it stood* on a date, which reads like a
+gazetteer written that year · or only what your book has actually named, which is a
+spoiler-free companion.
+
 **AI is optional, and structurally so.** The app is fully functional with nothing
 attached. A separate [MCP server](docs/mcp.md) exposes the world to whatever agent you
 already use, and it **cannot write to your world** — every change lands in a review
 queue that shows you what it would settle and what it would break, before you accept it.
+Version control and publishing have no agent-facing tools at all: one rewrites your
+repository and the other writes a file wherever you point it, and both are things a person
+does.
 
 ## Try it
 
@@ -61,13 +86,16 @@ pnpm install
 pnpm tauri dev
 ```
 
-It opens `examples/vashen`: eleven records, three events, a border contested at a siege
-dated only to the month, and one open question the consistency engine will not resolve
-for you.
+It opens the last world you had open, or `examples/vashen` on a first run: twelve records,
+three events, a border contested at a siege dated only to the month, and two open questions
+the consistency engine will not resolve for you.
 
-Jump to `@evt_siege_of_marrow` and watch the Vale go hatched. Then switch the terrain
-layer to **rain** and see why the Vashen Empire wants the Vale at all. Then switch the terrain
-layer to **rain** and look at why the Vashen Empire wants the Vale at all.
+Jump to `@evt_siege_of_marrow` and watch the Vale go hatched. Switch the terrain layer to
+**rain** and see why the Vashen Empire wants the Vale at all. Switch the centre pane to
+**lineage** and follow the ducal title down three generations of Vanes — one handover the
+chronicle pins to the day, and one it does not, drawn differently because the difference is
+the point. Then press **⤓ publish**, choose *as it stood*, and type `0810`: Marrow still has
+nine thousand people in it.
 
 ## Layout
 
@@ -79,22 +107,26 @@ layer to **rain** and look at why the Vashen Empire wants the Vale at all.
 | [`crates/wb-terrain`](crates/wb-terrain) | The map pipeline — coastline, cells, height, climate, rivers, biomes |
 | [`crates/wb-propose`](crates/wb-propose) | The review queue, and impact analysis |
 | [`crates/wb-story`](crates/wb-story) | The manuscript read against the world — scenes, mentions, the iceberg |
-| [`crates/wb-mcp`](crates/wb-mcp) | The agent surface — 20 tools, none of which reach canon |
+| [`crates/wb-git`](crates/wb-git) | Save points, what-ifs, and reading an old revision back out |
+| [`crates/wb-export`](crates/wb-export) | A world as one self-contained HTML document |
+| [`crates/wb-mcp`](crates/wb-mcp) | The agent surface — 21 tools, none of which reach canon |
 | [`skills/`](skills) | Worldbuilding methodology, shipped separately from the app |
-| [`src/`](src) | Svelte frontend: map, timeline, inspector, findings, queue, record editor, story panel |
+| [`src/`](src) | Svelte frontend: map, lineage chart, timeline, inspector, findings, queue, record editor, story and version and export panels |
 | [`DESIGN.md`](DESIGN.md) | The design brief, and every decision that changed while building |
 
 ```sh
-cargo test --workspace                      # 404 tests
+cargo test --workspace                      # 457 tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p worldbuilder --example check   # consistency report for the example world
 cargo run -p worldbuilder --example iceberg -- examples/vashen --mentions   # what reaches the page
+cargo run -p worldbuilder --example export -- examples/vashen --at 0812 --out /tmp/bible.html
 cargo run --release -p wb-mcp --example scale   # what a 20,000-record world costs
 cargo run --release -p worldbuilder --example terrain  # the map pipeline, plotted in ASCII
 ```
 
 ## Status
 
-Slices 1–5 of six are complete: the temporal spine, the integrity layer, the agent
-surface, map depth, authoring, and story. Next is depth — git branching, lineage and
-dynasty views, export and publish. See the [roadmap](DESIGN.md#11-roadmap).
+All six slices are complete: the temporal spine, the integrity layer, the agent surface,
+map depth, authoring, story, and depth. What is still open is open on purpose and named in
+[§12](DESIGN.md#12-open-questions--risks) — polygon morphing, authoring shared borders, and
+the half of the timeline-scale question a two-position toggle does not answer.

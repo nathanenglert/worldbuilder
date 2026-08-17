@@ -54,6 +54,10 @@ The engine reasons over five roles. User-facing type names ("Duchy", "Hive", "Or
 
 Consequence: **lineage is not a special subsystem.** A bloodline is actors with parentage edges and overlapping existence intervals. A dynasty is a polity whose ruling-title interval passes along those edges. Same primitives, no bespoke genealogy engine.
 
+**Slice 6 had to honour that claim rather than quietly abandon it, and it holds.** `wb-store::kin` is two walks over `parents:` and one grouping over facts that already exist: no family-tree type, no marriage edge, no house record. The lineage view is rows of existence intervals with title tenures drawn as bands on them, which is what the sentence above describes if you take it literally.
+
+The one thing that *was* missing is a transpose, not a subsystem. `succession-gap` runs per entity per attribute — "was Aldric ever not the duke". A dynasty asks the other way round: group every fact by `(attr, value)`, and who held **the** title falls out. It turns out there are two shapes of baton and they render identically — a **title** is one value with many holders (`title: "Duke of Corrath"`, held by three Vanes), an **office** is one record's attribute with many values (the Vale's `owner`, held by a duchy and then an empire). Restricting the query to actors and titles would have been exactly the bespoke genealogy engine this section rules out.
+
 ### 3.2 Facts are time-indexed, not scalar
 
 An entity's attributes carry validity intervals. Nothing is ever silently overwritten — new truth closes an interval and opens another.
@@ -262,6 +266,16 @@ Markdown + frontmatter for prose-bearing entities; YAML for pure structure; Topo
 
 **Free bonus: git branching gives you "what if" histories.** Fork canon, redraw two centuries of borders differently, diff the worlds, merge or discard. No tool in this space has this — it falls straight out of the storage decision.
 
+**Built in slice 6, and it did not fall out quite as straight as that.** Three things had to be decided before any of it was safe:
+
+**A world folder is very often not a repository.** `Repository::discover` from `examples/vashen` returns the Worldbuilder source tree, so a "try a what-if" button wired to it would branch and check out this codebase — and a vault inside a dotfiles repo, or a world in a monorepo, is the ordinary shape for the people this is for. So `wb-git` reports a three-way `Standing` and gates every mutation on the world folder *being* the repository root. A **nested** world is not crippled: reading history and materializing an old revision touch nothing, so the whole comparison feature stays available, with one sentence naming the repository the buttons would have moved.
+
+**A branch is reported in records, not in lines.** That is the part worth having. `git diff` can say eleven lines of `aldric-vane.md` changed; `wb_propose::diff_worlds` says *"Aldric Vane — existence, and his death moves 810 days later; two open questions settled, none introduced."* A record can also appear with **no changed fields and a moved date**, because re-dating an event drags every fact anchored to it — the consequence a line diff structurally cannot show.
+
+**The other side of a comparison has to be a world, not a directory of files.** Materializing a revision into a scratch directory leaves `manuscript.root` — `../manuscript`, relative to the world folder — pointing at nothing, so `wb_story::check` finds no prose on that side and the panel reports the branch as *settling two contradictions it never touched*. The scratch directory therefore lives in `.worldbuilder/`, whose leading dot `freshness::walk` skips (materializing anywhere else inside the folder would reload the world underneath itself), it is removed by an RAII guard, it is excluded from status and staging — otherwise one comparison would leave untracked files and the next branch switch would be refused because of them — and the manuscript root is overridden in memory to the live one. That last is not a workaround: the book is deliberately outside the repository (§8) and is not versioned with the world, so comparing two revisions against *today's* manuscript is the only honest reading.
+
+Four things are refused rather than attempted, each naming the next move: switching with unsaved changes, merging anything that is not a fast-forward, committing with no configured author, and deleting the branch you are standing on. `git2` is built `--no-default-features`, so the libgit2 underneath has no HTTPS or SSH transport compiled in at all — remote git is structurally absent rather than merely unimplemented.
+
 At realistic scale (~10k entities, ~50k intervals) a full reindex is well under a second, so file-as-truth costs nothing in practice.
 
 ---
@@ -416,6 +430,19 @@ The scan walks the prose once, testing 1..=K-word windows at each position, so i
 
 ---
 
+**Slice 6 addendum: the exported bible contains no scenes.** A scene points into a
+manuscript the recipient either already has or should not have, and a document about the
+world is not the place for the structure of the book that reveals it. What *is* there is
+[`Scope::OnThePage`], which turns the same mention scan around: hand a reader only the
+records the book has actually named them, which is spoiler-free by exposure rather than by
+date. The other two scopes are everything, and everything as it stood on one day — the
+second being a gazetteer that reads as though a chronicler wrote it that year, because
+every fact in it is `world.at(day)`.
+
+[`Scope::OnThePage`]: crates/wb-export/src/lib.rs
+
+---
+
 ## 9. Worldbuilding coverage
 
 From the research, the domains templates and skills should cover — offered as *prompts, never required fields*:
@@ -451,7 +478,8 @@ Two methodology constraints on the UX:
 | Vectorization | `image` (PNG only) + marching squares | Marching squares hand-rolled: the saddle cases have to be resolved the same way every time, and that is the whole algorithm |
 | MCP | `rmcp` 3.1 (official Rust SDK) | Sidecar binary over stdio — the app need not be running |
 | Randomness | hand-rolled SplitMix64 | Terrain is a cache key, and `rand` may change its algorithms between versions |
-| Git | `git2` (libgit2) | Branching histories |
+| Git | `git2` (libgit2), `--no-default-features` | Branching histories. Vendored libgit2 + libz, and **no network transport compiled in** |
+| Markdown (export) | `pulldown-cmark` | Record bodies in the exported bible |
 
 ---
 
@@ -465,7 +493,7 @@ Two methodology constraints on the UX:
 | **4 — Map depth** ✅ | Coastline vectorization ✅ · cell substrate ✅ · heightmap ✅ · climate ✅ · rivers ✅ · biomes ✅ |
 | **4.5 — Authoring** ✅ | Format-preserving writer ✅ · record editor ✅ · click-to-place markers ✅ · polygon drawing ✅ · events ✅ · delete with reference check ✅ |
 | **5 — Story** ✅ | Scene records ✅ · external prose linking ✅ · mention scanning ✅ · surfaced/iceberg view ✅ · scene band and story window ✅ · story path on the map ✅ |
-| 6 — Depth | Git branching UI, lineage/dynasty views, export & publish |
+| **6 — Depth** ✅ | Save points and what-ifs ✅ · world-level comparison ✅ · lineage and dynasty view ✅ · export & publish ✅ · open your own world ✅ |
 
 Slice 1 is deliberately the shortest path to the moment that proves the thesis — and it forces the hardest decisions (interval semantics, fuzzy date resolution, scrub performance) while the codebase is still small enough to throw away.
 
@@ -477,18 +505,20 @@ Slice 1 is deliberately the shortest path to the moment that proves the thesis �
 | `wb-store` — file format, loader, world assembly, time-indexed queries, search, format-preserving writer | **done**, 89 tests |
 | `wb-check` — the consistency rules, and the vocabulary the seventh borrows | **done**, 17 tests |
 | `wb-propose` — review queue, impact analysis, applier | **done**, 18 tests |
-| `wb-mcp` — MCP server, 20 tools, notes ingestion, terrain queries | **done**, 45 tests |
+| `wb-mcp` — MCP server, 21 tools, notes ingestion, terrain queries | **done**, 46 tests |
 | `wb-terrain` — the eight-stage map pipeline | **done**, 123 tests |
 | `wb-story` — manuscript reader, mention scanner, iceberg, canon check | **done**, 29 tests |
+| `wb-git` — standing, history, save points, what-ifs, reading a revision back out | **done**, 20 tests |
+| `wb-export` — a world as one self-contained HTML document | **done**, 14 tests |
 | `skills/` — six shipped methodologies | **done** |
-| `examples/vashen` — a working seed world | **done**, 11 entities, 3 events, 3 scenes, 2 proposals, 1 notes file, 1 map, 2 chapters |
-| Tauri commands — query surface, the direct write path, and the story | **done**, 27 tests |
-| Svelte map with five terrain layers, timeline, inspector, findings, review queue, record editor, story panel | **done** |
+| `examples/vashen` — a working seed world | **done**, 12 entities, 3 events, 3 scenes, 2 proposals, 1 notes file, 1 map, 2 chapters |
+| Tauri commands — query surface, the direct write path, the story, versions and publishing | **done**, 27 tests |
+| Svelte map with five terrain layers, lineage chart, timeline, inspector, findings, review queue, record editor, story panel, version panel, export panel | **done** |
 | SQLite index | **not needed** — see below |
 
-**404 tests** across the workspace. Clippy clean under `-D warnings`; `svelte-check` reports 0 errors and 0 warnings.
+**457 tests** across the workspace. Clippy clean under `-D warnings`; `svelte-check` reports 0 errors and 0 warnings.
 
-Slices 1 through 5 are complete. **Slice 6 (depth) is next**: git branching UI, lineage and dynasty views, export and publish.
+**All six slices are complete.** What remains open is named in §12 and is open on purpose: polygon morphing, shared-border authoring, and the half of the timeline-scale question a two-position toggle does not answer.
 
 §12.7 was aimed squarely at slice 4 — the map pipeline is the rabbit hole that can swallow months. What kept it to a day was one rule held to throughout: **every stage is a pure function, and the whole thing is a build product.** No stage may consult a world, a date or an entity; no output is ever committed. That made the eight stages independently implementable and independently testable, and it made the tuning loop an ASCII plot in a terminal rather than a round trip through the UI.
 
@@ -608,6 +638,53 @@ The rule from slice 4.5 held throughout: **never `tauri-pilot click` inside the 
 gesture went through `elementFromPoint` and a full `pointerdown → pointerup → click` on
 whatever it actually returned.
 
+### Slice 6 verified in the running app
+
+The risk moved again. This is the first slice where a button can destroy work that was
+never in the app, and the first where a comparison a writer *acts on* — keep this
+experiment, or throw the week away — is computed from two worlds at once.
+
+**Read-only, on the world that ships with the tool.** `examples/vashen` is a folder inside
+this repository, so the version panel says so in a sentence naming `worldbuilder`, offers
+no branch button, and still gives the whole read-only half:
+
+| What was done | What it proves |
+|---|---|
+| Opened the version panel on the example world | *"This world is a folder inside worldbuilder. Branching would move that whole repository…"* — and history below it, filtered to the four commits that touched the world subtree out of ten that touched the repo |
+| Compared against the slice-4 commit | **3 scenes added, 4 records changed** — each naming its fields (`aka +2`, `aka +1`) rather than its lines — and **1 finding opened**, the chapter-twelve contradiction that could not exist before scenes did |
+| Compared against the newest subtree commit | *"Nothing differs. Not one record, not one date."* This is the load-bearing one: had the materialized side lost its manuscript, the two prose findings would have shown as newly opened, and the panel would have been confidently wrong |
+| Checked the folder afterwards | `.worldbuilder/compare/` empty, `git status --porcelain examples/` unchanged. One comparison must not make the next branch switch impossible |
+
+**The whole what-if loop, on a real world folder that is its own repository.** A copy of
+the example world with `manuscript/` beside it, `git init`, opened through the new
+`open…` field:
+
+| Step | Result |
+|---|---|
+| Started `what-if/aldric-lived` and switched to it | Header moves to *on what-if/aldric-lived* |
+| Changed Aldric's death to `@evt_siege_of_marrow+1y` **in an editor outside the app** | Panel reads *1 unsaved*, naming the file — with `.worldbuilder/` excluded, though git sees it as untracked |
+| Made a save point | *saved as 3b42244*; the branch reads *1 ahead* |
+| Compared against canon | **Aldric Vane · existence · death 810 days later**, and *both* open questions settled — one from the record, one from chapter twelve |
+| Fast-forwarded canon, then switched to it | The consistency chip goes from **2 open questions** to **consistent** |
+| Deleted the what-if | Two presses; the second is the one that acts, and it states how many save points would become unreachable |
+| Threw away an unsaved change | *threw away 1 change*, and the file is back to what the save point said |
+| Tried to switch branches with an unsaved change | Refused, naming the file: *"…has changes you have not saved. Make a save point first, or throw them away."* |
+
+**Publishing.** Exporting *as it stood* on `0810-01-01` produced a 547 KB file containing
+Marrow's population as **9,000** and not 3,100, and no Siege of Marrow at all — the siege
+has not happened yet at that instant, and the document is written in the voice of the year.
+Pressing write twice refused the second time and re-labelled itself *replace it*.
+
+Three defects came out of driving it, none out of reading it. A duplicate-key crash that
+took the whole lineage chart down, because Marrow is a duchy's capital *and* a duke's seat
+from the same oath — one record legitimately holding two things over the same days. Row
+labels printing `from 0599-12-21` for a record that says `0602~`, which is the fuzz
+envelope's near edge and not remotely what the record means. And the same false precision
+in the exported bible, one layer down — the second occurrence is why [`wb_store::phrasing`]
+exists rather than three surfaces each formatting dates their own way.
+
+[`wb_store::phrasing`]: crates/wb-store/src/phrasing.rs
+
 ### On SQLite: measured, and dropped
 
 Slice 1 deferred the index with a promise to revisit once there were real query shapes to index *for*. Slice 3 produced them, so it was measured rather than argued about. `cargo run --release -p wb-mcp --example scale` generates worlds shaped like real ones — places changing hands at events, actors with parentage, fuzzy lifespans — and times what the server actually pays:
@@ -637,10 +714,11 @@ If either ever bites, the answer is still not SQLite. Launch parsing wants a cac
 1. **Polygon morphing** — cross-fade v1, but true border morphing needs vertex correspondence. Unsolved.
 2. **Shared-border topology** — TopoJSON arcs are the right call, but authoring UX for shared edges is genuinely hard.
 3. **Scrub performance** — change-point precomputation holds, and the terrain layer costs nothing extra because it is fetched once and never refetched. Still unvalidated at thousands of *time-varying* features.
-4. **Timeline scale range** — 4,000 years of history and a six-week story on one axis. **Half-closed in slice 5**: scenes have their own band, and a `just the story` toggle clamps the axis to the manuscript's own date range — on the example world that turns three scenes smeared across 3% of the track into three spread across 82% of it. That is a two-position toggle, not the era → century → year → day zoom this question asks for, and the event-density minimap remains unbuilt. The half that is done is the half that made the scene band readable.
+4. **Timeline scale range** — 4,000 years of history and a six-week story on one axis. **Half-closed in slice 5**: scenes have their own band, and a `just the story` toggle clamps the axis to the manuscript's own date range — on the example world that turns three scenes smeared across 3% of the track into three spread across 82% of it. That is a two-position toggle, not the era → century → year → day zoom this question asks for, and the event-density minimap remains unbuilt. The half that is done is the half that made the scene band readable. **Slice 6 did not close the other half either** — the lineage chart sidesteps it by fitting its own axis to the records on screen and coupling to the timeline by the scrubbed *day* rather than by pixels. Three actors over four thousand years is two percent of the main track; a second chart that reproduced that would have been a second unreadable one.
 5. **Constraint solver complexity** — fuzzy anchors form a DAG needing cycle detection and interval propagation. Keep it simple; resist building a general temporal reasoner.
 6. **Blank page** — needs seed worlds and templates, or slice 1 demos to an empty screen.
 7. **Scope discipline** — every section above is a product on its own. ~~The map pipeline in particular is a rabbit hole that can swallow months.~~ **Survived** (§11): pure stages, a build-product output, and an ASCII plot to tune against. The rabbit hole turned out to be the parameters, not the code.
+8. **Version control is somebody's real repository.** Slice 6 is the first place a button can lose work that was never in this app. Three controls hold it: mutations are gated on the world folder being the repository root, every refusal has a test written before its success path, and the two destructive actions state the count of what disappears before the second press. Merges that are not fast-forwards are refused outright — a half-merged world folder is the worst state this app could hand back, and conflict resolution is a real git client's job.
 
 ---
 

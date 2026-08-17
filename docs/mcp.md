@@ -30,6 +30,11 @@ back as `maybe`. A `possible` consistency finding comes back as possible, becaus
 is the shape a deliberate mystery takes. The engine detects; judgement is the agent's
 job, and yours.
 
+**Version control and publishing have no tools here, on purpose.** One rewrites your
+repository and the other writes a file wherever it is pointed. Both are in the app, and
+both are things a person does. The writing surface stays exactly one tool wide, and a test
+asserts it.
+
 ## Install
 
 ```sh
@@ -93,6 +98,7 @@ tool does.
 | `describe_place` | What the ground is like at a point, or under a record with a marker |
 | `find_sites` | Candidate locations matching the ground — on a river, coastal, a biome, near somewhere |
 | `lineage` | Ancestors and descendants with lifespans |
+| `succession` | Everything that changed hands, in the order it was held — with the stretches nobody held it, and the stretches the dates do not settle |
 | `check_consistency` | Every deterministic contradiction, with its certainty — including the ones found in linked prose |
 | `search` | Ranked full-text over ids, names, types, fact values, and prose |
 | `resolve_date` | Check a date expression before writing it into a proposal |
