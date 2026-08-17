@@ -1,0 +1,13 @@
+[package]
+name = "wb-story"
+description = "The manuscript, read against the world: scenes, mentions, and the iceberg."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+wb-core = { path = "../wb-core" }
+wb-store = { path = "../wb-store" }
+wb-check = { path = "../wb-check" }
+serde = { workspace = true }

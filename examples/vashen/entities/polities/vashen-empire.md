@@ -1,6 +1,10 @@
 ---
 id: pol_vashen
 name: The Vashen Empire
+# Nobody in the book says "the Vashen Empire" — they say Vashen. Safe as a bare word
+# because the longer names containing it win the match: "the Vashen Heartland" is found
+# whole, and only a standing-alone "Vashen" lands here.
+aka: [Vashen]
 type: empire
 existence: { from: "0410-01-01" }
 facts:

@@ -20,6 +20,7 @@ fn label(world: &World, id: &str) -> String {
         .get(id)
         .map(|e| e.name.clone())
         .or_else(|| world.events.get(id).map(|e| e.name.clone()))
+        .or_else(|| world.scenes.get(id).map(|s| s.name.clone()))
         .unwrap_or_else(|| id.to_string())
 }
 
@@ -29,6 +30,7 @@ fn source_of(world: &World, id: &str) -> Option<PathBuf> {
         .get(id)
         .map(|e| e.source.clone())
         .or_else(|| world.events.get(id).map(|e| e.source.clone()))
+        .or_else(|| world.scenes.get(id).map(|s| s.source.clone()))
 }
 
 fn sources(world: &World, ids: &[&str]) -> Vec<PathBuf> {
@@ -91,63 +93,85 @@ fn bounded_by(entity: &Entity, event_id: &str) -> bool {
 
 // ---------------------------------------------------------------- rules
 
-/// An event naming someone or somewhere that was not around for it.
+/// An event or scene naming someone or somewhere that was not around for it.
 pub(crate) fn existence_violations(world: &World, out: &mut Vec<Finding>) {
     for event in world.events.values() {
-        let Some(resolved) = world.resolved_node(&event.id) else { continue };
-        // An event with no position on the timeline cannot contradict anyone's dates.
-        if resolved.nominal.is_none() || (resolved.earliest.is_none() && resolved.latest.is_none())
-        {
-            continue;
-        }
-        let extent = Interval::inclusive(resolved.earliest, resolved.latest);
-        let window = sharp(extent);
-
-        let roles = event
+        let roles: Vec<(&str, &String)> = event
             .participants
             .iter()
             .map(|id| ("took part in", id))
-            .chain(event.location.iter().map(|id| ("hosted", id)));
+            .chain(event.location.iter().map(|id| ("hosted", id)))
+            .collect();
+        dated_roles(world, &event.id, &event.name, &roles, out);
+    }
 
-        for (verb, id) in roles {
-            let Some(life) = world.lifespan(id) else { continue };
-            if world.entities.get(id).is_some_and(|e| bounded_by(e, &event.id)) {
-                continue;
-            }
-            let certainty = match placement(&window, life) {
-                Placement::Inside => continue,
-                Placement::Outside => Certainty::Definite,
-                Placement::Doubtful => Certainty::Possible,
-            };
+    // A scene is a dated record naming records, which is the same shape and the same
+    // check. The verbs differ because the claim is weaker: a scene says somebody was on
+    // the page, not that they did anything.
+    for scene in world.scenes.values() {
+        let roles: Vec<(&str, &String)> = scene
+            .pov
+            .iter()
+            .map(|id| ("is the point of view of", id))
+            .chain(scene.on_page.iter().map(|id| ("appears in", id)))
+            .chain(scene.location.iter().map(|id| ("is set in", id)))
+            .collect();
+        dated_roles(world, &scene.id, &scene.name, &roles, out);
+    }
+}
 
-            let who = label(world, id);
-            let message = match certainty {
-                Certainty::Definite => format!(
-                    "{who} {verb} “{}” ({}), but existed only {}.",
-                    event.name,
-                    when(world, &extent),
-                    when(world, &life.possible)
-                ),
-                Certainty::Possible => format!(
-                    "{who} {verb} “{}” ({}), which may fall outside their existence — \
-                     certainly {}, possibly {}.",
-                    event.name,
-                    when(world, &extent),
-                    when(world, &life.certain),
-                    when(world, &life.possible)
-                ),
-            };
+/// The body of [`existence_violations`], for one dated record and the ids it names.
+fn dated_roles(
+    world: &World,
+    id: &str,
+    name: &str,
+    roles: &[(&str, &String)],
+    out: &mut Vec<Finding>,
+) {
+    let Some(resolved) = world.resolved_node(id) else { return };
+    // A record with no position on the timeline cannot contradict anyone's dates.
+    if resolved.nominal.is_none() || (resolved.earliest.is_none() && resolved.latest.is_none()) {
+        return;
+    }
+    let extent = Interval::inclusive(resolved.earliest, resolved.latest);
+    let window = sharp(extent);
 
-            out.push(Finding {
-                rule: Rule::ExistenceViolation,
-                certainty,
-                subject: event.id.clone(),
-                related: vec![id.clone()],
-                message,
-                at: resolved.nominal,
-                sources: sources(world, &[&event.id, id]),
-            });
+    for (verb, target) in roles {
+        let Some(life) = world.lifespan(target) else { continue };
+        if world.entities.get(*target).is_some_and(|e| bounded_by(e, id)) {
+            continue;
         }
+        let certainty = match placement(&window, life) {
+            Placement::Inside => continue,
+            Placement::Outside => Certainty::Definite,
+            Placement::Doubtful => Certainty::Possible,
+        };
+
+        let who = label(world, target);
+        let message = match certainty {
+            Certainty::Definite => format!(
+                "{who} {verb} “{name}” ({}), but existed only {}.",
+                when(world, &extent),
+                when(world, &life.possible)
+            ),
+            Certainty::Possible => format!(
+                "{who} {verb} “{name}” ({}), which may fall outside their existence — \
+                 certainly {}, possibly {}.",
+                when(world, &extent),
+                when(world, &life.certain),
+                when(world, &life.possible)
+            ),
+        };
+
+        out.push(Finding {
+            rule: Rule::ExistenceViolation,
+            certainty,
+            subject: id.to_string(),
+            related: vec![(*target).clone()],
+            message,
+            at: resolved.nominal,
+            sources: sources(world, &[id, target]),
+        });
     }
 }
 
@@ -256,6 +280,7 @@ pub(crate) fn orphan_references(world: &World, out: &mut Vec<Finding>) {
         .entities
         .keys()
         .chain(world.events.keys())
+        .chain(world.scenes.keys())
         .filter_map(|id| id.split_once('_').map(|(prefix, _)| prefix))
         .collect();
 
@@ -300,6 +325,26 @@ pub(crate) fn orphan_references(world: &World, out: &mut Vec<Finding>) {
             && !world.knows(location)
         {
             report(&event.id, location, "its location", out);
+        }
+    }
+
+    // A scene names records the same three ways an event does, and a typo in a `pov:`
+    // is exactly as much a dangling reference as one in `participants:`.
+    for scene in world.scenes.values() {
+        if let Some(pov) = &scene.pov
+            && !world.knows(pov)
+        {
+            report(&scene.id, pov, "its point of view", out);
+        }
+        for id in &scene.on_page {
+            if !world.knows(id) {
+                report(&scene.id, id, "on the page", out);
+            }
+        }
+        if let Some(location) = &scene.location
+            && !world.knows(location)
+        {
+            report(&scene.id, location, "its location", out);
         }
     }
 }

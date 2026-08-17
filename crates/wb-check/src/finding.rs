@@ -18,6 +18,12 @@ pub enum Rule {
     SuccessionGap,
     /// A child born before their parent, or too long after them.
     ImpossibleParentage,
+    /// A scene's prose names someone who was not alive when the scene is set.
+    ///
+    /// The one rule whose body does not live here: it needs the manuscript, and
+    /// `wb-check` reads no files. `wb-story::canon` produces it. The name lives here so
+    /// a contradiction found on the page renders exactly like one found in the records.
+    SceneContradiction,
 }
 
 impl Rule {
@@ -29,6 +35,7 @@ impl Rule {
             Self::OrphanReference => "orphan-reference",
             Self::SuccessionGap => "succession-gap",
             Self::ImpossibleParentage => "impossible-parentage",
+            Self::SceneContradiction => "scene-contradiction",
         }
     }
 
@@ -40,6 +47,7 @@ impl Rule {
             Self::OrphanReference => "Orphan reference",
             Self::SuccessionGap => "Succession gap",
             Self::ImpossibleParentage => "Impossible parentage",
+            Self::SceneContradiction => "Scene contradiction",
         }
     }
 }

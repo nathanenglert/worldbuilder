@@ -4270,6 +4270,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "wb-story"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "wb-check",
+ "wb-core",
+ "wb-store",
+]
+
+[[package]]
 name = "wb-terrain"
 version = "0.1.0"
 dependencies = [
@@ -4787,6 +4797,7 @@ dependencies = [
  "wb-core",
  "wb-propose",
  "wb-store",
+ "wb-story",
  "wb-terrain",
 ]
 

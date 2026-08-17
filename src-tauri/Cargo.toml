@@ -22,6 +22,7 @@ wb-store = { path = "../crates/wb-store" }
 wb-terrain = { path = "../crates/wb-terrain" }
 wb-check = { path = "../crates/wb-check" }
 wb-propose = { path = "../crates/wb-propose" }
+wb-story = { path = "../crates/wb-story" }
 similar = "2"
 
 # Debug-only UI automation: screenshots, DOM queries, synthetic input.

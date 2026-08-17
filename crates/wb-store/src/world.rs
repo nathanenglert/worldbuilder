@@ -525,7 +525,9 @@ impl World {
 
     /// Ids that exist, whether entity or event — the two share one namespace.
     pub fn knows(&self, id: &str) -> bool {
-        self.entities.contains_key(id) || self.events.contains_key(id)
+        self.entities.contains_key(id)
+            || self.events.contains_key(id)
+            || self.scenes.contains_key(id)
     }
 
     pub fn primitive_of(&self, entity: &Entity) -> Option<Primitive> {

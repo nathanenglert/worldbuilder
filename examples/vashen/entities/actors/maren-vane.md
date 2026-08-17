@@ -1,6 +1,9 @@
 ---
 id: act_maren_vane
 name: Maren Vane
+# The book never says her surname. Without this line she reads as never appearing, and
+# the record the story leans on hardest would sit in the wrong column.
+aka: [Maren]
 type: noble
 existence: { from: "0744-02-03", to: "0799-01-01" }
 facts:
