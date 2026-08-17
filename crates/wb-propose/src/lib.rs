@@ -31,12 +31,14 @@
 //! is an ordinary git diff the writer can inspect or revert.
 
 pub mod apply;
+pub mod diff;
 pub mod error;
 pub mod impact;
 pub mod model;
 pub mod store;
 
 pub use apply::{FileEdit, preview, simulate};
+pub use diff::{Moved, RecordChange, RecordRef, WorldDiff, diff_worlds};
 pub use error::{Error, Result};
 pub use impact::{Impact, impact, impact_between};
 pub use model::{Change, Proposal, Status};

@@ -8,6 +8,8 @@ members = [
     "crates/wb-mcp",
     "crates/wb-story",
     "crates/wb-terrain",
+    "crates/wb-git",
+    "crates/wb-export",
     "src-tauri",
 ]
 

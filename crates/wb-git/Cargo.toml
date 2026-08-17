@@ -1,0 +1,16 @@
+[package]
+name = "wb-git"
+description = "Version control for a world folder: save points, what-if branches, and reading an old revision back out."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+
+# Local operations only. `--no-default-features` drops `https` and `ssh`, which means the
+# built libgit2 has no network transport compiled into it at all — remote git is not
+# merely unimplemented here, it is structurally absent. It also removes the OpenSSL
+# dependency, so the build is vendored libgit2 + libz and nothing else.
+git2 = { version = "0.21", default-features = false }
