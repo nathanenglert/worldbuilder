@@ -34,11 +34,20 @@ about 85 ms for a 2,000-pixel map. The inputs are your image and forty numbers i
 with the date, the scrubber never pays for it.
 
 **Contradictions are found deterministically, offline.** "Aldric died in 811 but attends
-the Council of 814" is an interval containment test, not a job for a model. Six rules
+the Council of 814" is an interval containment test, not a job for a model. Seven rules
 cover existence violations, anachronisms, conflicting facts, orphan references,
-succession gaps, and impossible parentage. Each finding says whether it is *definite* —
-wrong under every reading of every fuzzy date — or merely *possible*, which is the shape
-a deliberate mystery takes.
+succession gaps, impossible parentage, and prose that names somebody who was not alive
+when the scene is set. Each finding says whether it is *definite* — wrong under every
+reading of every fuzzy date — or merely *possible*, which is the shape a deliberate
+mystery takes.
+
+**It can see how much of your world is actually on the page.** Point `manuscript.root` at
+the folder your chapters live in, link a scene to a heading, and Worldbuilder reads the
+prose — never writes it — and tells you which records surface and which do not. That is a
+live [iceberg ratio](https://andreacerasoni.com/blog/iceberg-method), and the useful end
+of it is not what you overbuilt but what the story keeps reaching for that was never
+built. Every count shows the sentence it came from, because a number nobody can check is
+a number nobody should act on.
 
 **AI is optional, and structurally so.** The app is fully functional with nothing
 attached. A separate [MCP server](docs/mcp.md) exposes the world to whatever agent you
@@ -69,21 +78,23 @@ layer to **rain** and look at why the Vashen Empire wants the Vale at all.
 | [`crates/wb-check`](crates/wb-check) | Deterministic consistency rules |
 | [`crates/wb-terrain`](crates/wb-terrain) | The map pipeline — coastline, cells, height, climate, rivers, biomes |
 | [`crates/wb-propose`](crates/wb-propose) | The review queue, and impact analysis |
-| [`crates/wb-mcp`](crates/wb-mcp) | The agent surface — 17 tools, none of which reach canon |
+| [`crates/wb-story`](crates/wb-story) | The manuscript read against the world — scenes, mentions, the iceberg |
+| [`crates/wb-mcp`](crates/wb-mcp) | The agent surface — 20 tools, none of which reach canon |
 | [`skills/`](skills) | Worldbuilding methodology, shipped separately from the app |
-| [`src/`](src) | Svelte frontend: map, timeline, inspector, findings, queue, record editor |
+| [`src/`](src) | Svelte frontend: map, timeline, inspector, findings, queue, record editor, story panel |
 | [`DESIGN.md`](DESIGN.md) | The design brief, and every decision that changed while building |
 
 ```sh
-cargo test --workspace                      # 350 tests
+cargo test --workspace                      # 404 tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p worldbuilder --example check   # consistency report for the example world
+cargo run -p worldbuilder --example iceberg -- examples/vashen --mentions   # what reaches the page
 cargo run --release -p wb-mcp --example scale   # what a 20,000-record world costs
 cargo run --release -p worldbuilder --example terrain  # the map pipeline, plotted in ASCII
 ```
 
 ## Status
 
-Slices 1–4.5 of six are complete: the temporal spine, the integrity layer, the agent
-surface, map depth, and authoring. Next is story — scene stubs, external prose linking,
-and the surfaced/iceberg view. See the [roadmap](DESIGN.md#11-roadmap).
+Slices 1–5 of six are complete: the temporal spine, the integrity layer, the agent
+surface, map depth, authoring, and story. Next is depth — git branching, lineage and
+dynasty views, export and publish. See the [roadmap](DESIGN.md#11-roadmap).

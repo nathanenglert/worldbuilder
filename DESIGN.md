@@ -32,7 +32,7 @@ Everything else in this document amplifies that moment.
 | 4 | Date precision | **Fuzzy-first with relative anchoring** |
 | 5 | AI | **Local MCP server, bring-your-own-agent, distributable skills** |
 | 6 | Storage | **Plain files as truth**; derived indexes only where measurement calls for one (§11) |
-| 7 | Manuscript | **Scene stubs + linked external prose (no editor)** |
+| 7 | Manuscript | **Scene stubs + linked external prose (no editor)** ✅ |
 | 8 | Ontology | **Small structural core, user-extensible types** |
 | 9 | First slice | **Temporal spine end-to-end** |
 
@@ -209,6 +209,7 @@ AI's job starts only where judgment does: *"is this a contradiction, or a delibe
 | `orphan-reference` | A reference to an id nothing defines | definite |
 | `succession-gap` | A single-valued attribute with a stretch nothing covers | definite |
 | `impossible-parentage` | A child born before their parent, or beyond death + gestation | both |
+| `scene-contradiction` | A scene's prose names someone who was not alive when it is set | both |
 
 Three refinements the implementation forced, each of which prevents a class of false positive:
 
@@ -216,7 +217,11 @@ Three refinements the implementation forced, each of which prevents a class of f
 - **Entities bounded by an event are exempt from it.** A duchy annexed at the siege takes part in the siege; a city founded by a founding hosts it. Their lifespans end or begin exactly there, so the boundary always looks like a near-miss.
 - **Gaps are measured on possible intervals, not certain ones.** Two facts meeting at a vague event leave a hole between their certain cores. That hole is uncertainty, not an unruled decade.
 
-Two checks from the original list live earlier in the pipeline and are deliberately absent: **anchor cycles** and **impossible calendar dates** both fail at load, because a world that cannot resolve its own dates cannot be queried at all. **Scene contradictions** wait for Slice 5, when scenes exist.
+Two checks from the original list live earlier in the pipeline and are deliberately absent: **anchor cycles** and **impossible calendar dates** both fail at load, because a world that cannot resolve its own dates cannot be queried at all.
+
+**Scene contradictions arrived in slice 5**, and are the one rule whose body does not live in `wb-check`. It needs to open a file the world does not own, and `wb-check`'s whole claim is that it is interval arithmetic over facts the writer already stated — instant, offline, and incapable of inventing a contradiction that is not there. So `wb-check` owns the rule's *name* and `wb-story::canon` owns its body, and both produce the same `Finding`. One `wb_story::check` merges them, which is what every caller uses: the app's header count, `check_consistency`, the impact analysis behind every proposal, and `--example check`. Two surfaces disagreeing about whether a world is clean would be worse than either answer.
+
+Scenes also join `existence-violation` and `orphan-reference` for free, because a scene is a dated record naming records — the same shape those two rules already understood.
 
 Per-world knobs live in `world.yaml` under `rules`: `multi_valued` (attributes that may legitimately hold several values, so `member` is not a conflict) and `gestation_days`.
 
@@ -243,11 +248,14 @@ my-world/
 ├── geometry/
 │   ├── base.topojson                # coastline, terrain
 │   └── territories/*.topojson       # feature per validity interval
-├── scenes/
-│   └── ch12-s03.yaml
+├── scenes/                          # where the telling touches the world
+│   └── the-breach.yaml
 ├── proposals/                       # agent output awaiting review
 └── .worldbuilder/
     └── index.sqlite                 # derived, gitignored
+
+../manuscript/                       # outside the folder, and never written to
+└── ch12-the-siege.md
 ```
 
 Markdown + frontmatter for prose-bearing entities; YAML for pure structure; TopoJSON for geometry.
@@ -277,6 +285,8 @@ Built as `wb-mcp` on `rmcp` 3.1, served over stdio. Setup: [`docs/mcp.md`](docs/
 - `lineage(actor_id, depth)` · `check_consistency(scope?)`
 - `resolve_date(expr)` — check an anchor before writing it
 - `list_notes()` / `read_note(path)` — the writer's raw source material
+- `list_scenes()` / `read_scene(id)` — the book in reading order, and one scene's prose with every record it names
+- `iceberg()` — what of the world reaches the page, sorted underbuilt-first
 
 **Write (routed to a proposal queue, never direct to canon):**
 - `check_changes(changes)` — dry run: what it settles, what it breaks. Writes nothing
@@ -323,8 +333,10 @@ Six operations cover the realistic surface: `create_entity`, `create_event`, `ad
 
 | Proposal | Effect |
 |---|---|
-| *Aldric died of his wounds within the year* | settles 1 · breaks nothing |
+| *Aldric died of his wounds within the year* | settles 2 · breaks nothing |
 | *Vashen ruled from Marrow before the conquest* | settles 0 · **adds 2 definite** |
+
+Two, not one, since slice 5: the same question — was Aldric alive at the siege? — is asked by the event record listing him among the participants and by chapter twelve naming him on the page. Giving him another year settles both, which is the impact analysis reaching the prose.
 
 The second reads perfectly plausibly and is wrong twice over — Marrow does not exist until `0602~`, and Vashen already has a capital across those years. It is caught before it lands, not after.
 
@@ -345,6 +357,8 @@ Skills are where worldbuilding *methodology* lives, distributable and extensible
 - `succession-crisis` — plausible dynastic fallout
 - `iceberg-check` — what have you overbuilt that never surfaces in the manuscript?
 
+Two of them shipped in slice 3 carrying written apologies for what the tools could not yet answer. `iceberg-check` said *"until scenes are linked to the manuscript, this measures internal connectedness … not what surfaces on the page"*, and `chapter-canon-check` had to tell an agent to go find the prose on the filesystem itself. Slice 5 deleted both paragraphs and replaced them with the judgement calls that are actually left — which `standing` you are looking at, and the two opposite causes of a low ratio.
+
 The tools say what an agent *can* do; the skills say what is worth doing, and — more often — what to refuse on the writer's behalf. Every one ends the same way: **offer, do not decide.** A name is taste, a mystery is a plot, and where to spend the next hour is the writer's call.
 
 The methodology worth naming here is `world-from-notes`'s: **preserve the vagueness.** Notes are vague because worlds are vague, and the instinct to tidy that away is the failure mode. "Roughly 600 AR" becomes `0600~`, never `0600`; "after the Sundering" becomes `>@evt_sundering`, never an invented year. Every piece of precision an agent adds is a fact the writer never wrote and will later have to discover is wrong.
@@ -361,26 +375,44 @@ So every call fingerprints the world tree (path, size, mtime) and reloads when a
 
 ## 8. Manuscript integration
 
-The app **never owns or edits prose.** Writers are attached to Scrivener, Obsidian, and Word, and will not move.
+The app **never owns or edits prose.** Writers are attached to Scrivener, Obsidian, and Word, and will not move. The link is one-way by construction: there is no function anywhere in `wb-story` that writes, which is the cheapest way to keep a promise like that.
 
-A scene is a first-class entity — which fits the model perfectly, since **a scene *is* an interval with a POV character and a location**:
+A scene is a first-class record — a scene *is* an interval with a POV character and a location:
 
 ```yaml
-id: scn_ch12_s03
-primitive: event
-date: "0812-04-17"
-pov: act_aldric_vane
+# scenes/the-breach.yaml
+id: scn_the_breach
+name: The breach
+date: "@evt_siege_of_marrow"       # anchored, so re-dating the siege drags the chapter
 location: place_marrow
-source: ../manuscript/ch12.md#scene-3     # read-only link
+on_page: [pol_vashen, ter_vale_of_corrath]
+prose: ch12-the-siege.md#the-breach  # read-only link, relative to the manuscript root
 ```
 
+And the root is declared once, in `world.yaml`:
+
+```yaml
+manuscript:
+  root: ../manuscript      # the only path in a world allowed to leave its folder
+```
+
+> **Revised during implementation, twice.** The sketch made a scene `primitive: event` carrying `pov` and `source`. Both halves turned out to be traps. `Event.source` is `#[serde(skip)]` — the file the record was loaded from — so a `source:` key would have parsed as unknown, been dropped, and left the writer looking at a link nothing read; the key is **`prose:`**, and a scene that says `source:` is refused by name. And folding scenes into `world.events` would have put the book's chapters onto the history track and changed what `event_count` means, so `Scene` is its own record type in `world.scenes`, filed under `scenes/` exactly as §6 reserved.
+>
+> Declaring the root in `world.yaml` rather than writing `../manuscript/ch12.md` on every scene was the other change: one escape hatch, visible in a diff, and when the book moves one line moves with it.
+
 This gives you, with zero editor built:
-- The story rendered on the timeline against world history
-- The book's path lit up on the map
-- Prose checkable against canon
-- The agent seeing both world and manuscript
+- The story rendered on the timeline against world history, in its own band
+- The book's route lit up on the map, in **reading** order — which is derived from the manuscript itself, so a flashback shows as the path doubling back rather than as an error
+- Prose checkable against canon (§5's `scene-contradiction`)
+- The agent seeing both world and manuscript (`list_scenes`, `read_scene`, `iceberg`)
 
 **Derived feature worth calling out:** scanning linked prose for entity mentions yields a **"surfaced" flag** — which parts of the world actually appear on the page. That's a live [iceberg ratio](https://andreacerasoni.com/blog/iceberg-method): the 10% above water vs the 90% below. No other tool can show a writer that.
+
+**The matcher is deliberately conservative, and that is the whole design.** It counts a record's `name`, its declared `aka` spellings, and `[[wikilinks]]`, matched on whole words — never a single word out of a multi-word name, because "The Vale of Corrath" would then be found in every sentence containing "vale". A wrong ratio is worse than no ratio: a writer will act on it. So every hit carries the sentence it came from, and the caveat travels on the payload rather than living only in a skill — a low ratio means either the world is not on the page *or* the world has not been told what the page calls things, and those need opposite responses.
+
+`aka` is a first-class list rather than a fact. As a fact it would be multi-valued, so every world would have to remember to list it under `rules.multi_valued` or watch the engine call two nicknames a contradiction.
+
+The scan walks the prose once, testing 1..=K-word windows at each position, so it is O(words × K) and independent of how many records exist. `World::search` runs the other way — one query against every record, matching on `contains` with no word boundaries — which is right for a search box and wrong for this.
 
 ---
 
@@ -401,7 +433,7 @@ Two methodology constraints on the UX:
 
 **Never force top-down.** Most tools assume planet → continents → civilizations → regions and induce *worldbuilder's block*. Support bottom-up growth equally: start with one tavern and expand outward as the story demands. The interval model is naturally agnostic — an entity with no dates and no geometry is perfectly valid and can be filled in later.
 
-**Respect the iceberg.** ~90% of a world never reaches the page. The tool must comfortably hold far more than it shows and never imply that empty fields are incomplete work.
+**Respect the iceberg.** ~90% of a world never reaches the page. The tool must comfortably hold far more than it shows and never imply that empty fields are incomplete work. Slice 5 makes this measurable without making it a scold: the story panel reports what surfaces, sorts *underbuilt* first because that is the only quadrant naming work worth doing, and says of the rest that stubs are not debt.
 
 ---
 
@@ -432,7 +464,7 @@ Two methodology constraints on the UX:
 | **3 — Agent surface** ✅ | MCP server ✅ · tool surface ✅ · shipped skills ✅ · notes ingestion ✅ |
 | **4 — Map depth** ✅ | Coastline vectorization ✅ · cell substrate ✅ · heightmap ✅ · climate ✅ · rivers ✅ · biomes ✅ |
 | **4.5 — Authoring** ✅ | Format-preserving writer ✅ · record editor ✅ · click-to-place markers ✅ · polygon drawing ✅ · events ✅ · delete with reference check ✅ |
-| 5 — Story | Scene stubs, external prose linking, surfaced/iceberg view |
+| **5 — Story** ✅ | Scene records ✅ · external prose linking ✅ · mention scanning ✅ · surfaced/iceberg view ✅ · scene band and story window ✅ · story path on the map ✅ |
 | 6 — Depth | Git branching UI, lineage/dynasty views, export & publish |
 
 Slice 1 is deliberately the shortest path to the moment that proves the thesis — and it forces the hardest decisions (interval semantics, fuzzy date resolution, scrub performance) while the codebase is still small enough to throw away.
@@ -442,20 +474,21 @@ Slice 1 is deliberately the shortest path to the moment that proves the thesis �
 | Crate / step | State |
 |---|---|
 | `wb-core` — calendars, fuzzy dates, anchor resolution, Allen intervals | **done**, 56 tests |
-| `wb-store` — file format, loader, world assembly, time-indexed queries, search, format-preserving writer | **done**, 74 tests |
-| `wb-check` — six deterministic consistency rules | **done**, 17 tests |
+| `wb-store` — file format, loader, world assembly, time-indexed queries, search, format-preserving writer | **done**, 89 tests |
+| `wb-check` — the consistency rules, and the vocabulary the seventh borrows | **done**, 17 tests |
 | `wb-propose` — review queue, impact analysis, applier | **done**, 18 tests |
-| `wb-mcp` — MCP server, 17 tools, notes ingestion, terrain queries | **done**, 40 tests |
+| `wb-mcp` — MCP server, 20 tools, notes ingestion, terrain queries | **done**, 45 tests |
 | `wb-terrain` — the eight-stage map pipeline | **done**, 123 tests |
+| `wb-story` — manuscript reader, mention scanner, iceberg, canon check | **done**, 29 tests |
 | `skills/` — six shipped methodologies | **done** |
-| `examples/vashen` — a working seed world | **done**, 11 entities, 3 events, 2 proposals, 1 notes file, 1 map |
-| Tauri commands — query surface, and the direct write path | **done**, 21 tests |
-| Svelte map with five terrain layers, timeline, inspector, findings, review queue, record editor | **done** |
+| `examples/vashen` — a working seed world | **done**, 11 entities, 3 events, 3 scenes, 2 proposals, 1 notes file, 1 map, 2 chapters |
+| Tauri commands — query surface, the direct write path, and the story | **done**, 27 tests |
+| Svelte map with five terrain layers, timeline, inspector, findings, review queue, record editor, story panel | **done** |
 | SQLite index | **not needed** — see below |
 
-**350 tests** across the workspace. Clippy clean under `-D warnings`; `svelte-check` reports 0 errors and 0 warnings.
+**404 tests** across the workspace. Clippy clean under `-D warnings`; `svelte-check` reports 0 errors and 0 warnings.
 
-Slices 1 through 4.5 are complete. **Slice 5 (story) is next.**
+Slices 1 through 5 are complete. **Slice 6 (depth) is next**: git branching UI, lineage and dynasty views, export and publish.
 
 §12.7 was aimed squarely at slice 4 — the map pipeline is the rabbit hole that can swallow months. What kept it to a day was one rule held to throughout: **every stage is a pure function, and the whole thing is a build product.** No stage may consult a world, a date or an entity; no output is ever committed. That made the eight stages independently implementable and independently testable, and it made the tuning loop an ASCII plot in a terminal rather than a round trip through the UI.
 
@@ -550,6 +583,31 @@ Four things the work turned up, none of which a test would have caught:
   says `marker: [0.43, 0.40]`. Coordinates round to four decimals — finer than the raster
   has pixels — and new records are written through the same emitter the patcher uses.
 
+### Slice 5 verified in the running app
+
+The risk here is different again: nothing this slice writes can destroy work, but the
+number it reports can be *confidently wrong*, and a writer will act on it.
+
+| What was done | What it proves |
+|---|---|
+| Compared the story panel against `--example iceberg` | 73%, 8 of 11, 3 scenes read, same records in the same order. Two implementations of one number agreeing is the reason for computing it twice |
+| Read every mention's excerpt | Each of the eight surfaced records shows the sentence it was found in. Two records — Maren and Vashen — surfaced only because of a declared `aka`, which is the mechanism earning its place |
+| Toggled `just the story` | The axis goes from 169,689 days to 6,119, and three scenes spread from 89.5–92.5% of the track to 8.3 / 57.4 / 90.7%. §12.4's problem, in numbers |
+| Opened a scene from the map | The prose resolves live: `→ ch01-the-wall.md · "The gate at dusk" · 239 words`, with the opening lines beneath it |
+| Saved one scene's date | One changed line. The three-line comment above it survived, and `examples/vashen` was byte-identical after `git checkout` |
+| Created a scene with Aldric as POV a year after the siege | Reports **opens**, not breaks — his death is `0811~`, so the world permits it and does not confirm it |
+| Pointed `manuscript.root` at a folder that is not there | The chip reads *manuscript missing* rather than a false 0%, the panel names the folder, the prose finding drops away, the scenes still render as records, and nothing throws |
+| Two scenes at the same location | The stop reads `1·3` — grouped, because the first version drew two circles on the same pixel and a book that visited Marrow twice looked like it visited once |
+
+Four defects came out of driving it and none out of reading it: a header that clipped its
+own counts once six chips shared a row, a toggle that labelled its state so a lone button
+offered nothing, co-located scenes hiding each other, and `+ scene` deriving no id because
+scenes were missing from the prefix table.
+
+The rule from slice 4.5 held throughout: **never `tauri-pilot click` inside the map.** Every
+gesture went through `elementFromPoint` and a full `pointerdown → pointerup → click` on
+whatever it actually returned.
+
 ### On SQLite: measured, and dropped
 
 Slice 1 deferred the index with a promise to revisit once there were real query shapes to index *for*. Slice 3 produced them, so it was measured rather than argued about. `cargo run --release -p wb-mcp --example scale` generates worlds shaped like real ones — places changing hands at events, actors with parentage, fuzzy lifespans — and times what the server actually pays:
@@ -579,7 +637,7 @@ If either ever bites, the answer is still not SQLite. Launch parsing wants a cac
 1. **Polygon morphing** — cross-fade v1, but true border morphing needs vertex correspondence. Unsolved.
 2. **Shared-border topology** — TopoJSON arcs are the right call, but authoring UX for shared edges is genuinely hard.
 3. **Scrub performance** — change-point precomputation holds, and the terrain layer costs nothing extra because it is fetched once and never refetched. Still unvalidated at thousands of *time-varying* features.
-4. **Timeline scale range** — 4,000 years of history and a six-week story on one axis. Likely needs multi-resolution zoom (eras → centuries → years → days), a story-window bookmark, and an event-density minimap.
+4. **Timeline scale range** — 4,000 years of history and a six-week story on one axis. **Half-closed in slice 5**: scenes have their own band, and a `just the story` toggle clamps the axis to the manuscript's own date range — on the example world that turns three scenes smeared across 3% of the track into three spread across 82% of it. That is a two-position toggle, not the era → century → year → day zoom this question asks for, and the event-density minimap remains unbuilt. The half that is done is the half that made the scene band readable.
 5. **Constraint solver complexity** — fuzzy anchors form a DAG needing cycle detection and interval propagation. Keep it simple; resist building a general temporal reasoner.
 6. **Blank page** — needs seed worlds and templates, or slice 1 demos to an empty screen.
 7. **Scope discipline** — every section above is a product on its own. ~~The map pipeline in particular is a rabbit hole that can swallow months.~~ **Survived** (§11): pure stages, a build-product output, and an ASCII plot to tune against. The rabbit hole turned out to be the parameters, not the code.

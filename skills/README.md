@@ -16,6 +16,11 @@ often — what to refuse to do on the writer's behalf.
 | [`succession-crisis`](succession-crisis/) | Work out who claims a vacant title, and what follows |
 | [`iceberg-check`](iceberg-check/) | Find what is overbuilt and unused, and what the story leans on that was never built |
 
+Two of these shipped carrying a written apology for what the tools could not yet answer.
+`iceberg-check` could only measure how much a world referred to *itself*, and said so;
+`chapter-canon-check` had to send an agent to the filesystem for the prose. Slice 5's
+`list_scenes`, `read_scene` and `iceberg` closed both, and the paragraphs are gone.
+
 ## Installing
 
 Copy the ones you want into your agent's skills folder. For Claude Code:

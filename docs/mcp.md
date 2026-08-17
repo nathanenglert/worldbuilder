@@ -93,10 +93,13 @@ tool does.
 | `describe_place` | What the ground is like at a point, or under a record with a marker |
 | `find_sites` | Candidate locations matching the ground — on a river, coastal, a biome, near somewhere |
 | `lineage` | Ancestors and descendants with lifespans |
-| `check_consistency` | Every deterministic contradiction, with its certainty |
+| `check_consistency` | Every deterministic contradiction, with its certainty — including the ones found in linked prose |
 | `search` | Ranked full-text over ids, names, types, fact values, and prose |
 | `resolve_date` | Check a date expression before writing it into a proposal |
 | `list_notes` / `read_note` | Source documents in the world's `notes/` folder |
+| `list_scenes` | The book in reading order — dates, point of view, location, and the prose each scene links to |
+| `read_scene` | One scene's prose, plus every record the passage names |
+| `iceberg` | What of the world reaches the page, sorted underbuilt-first |
 
 **Writing** — routed to the review queue, never to canon.
 
