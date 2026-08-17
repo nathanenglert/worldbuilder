@@ -1,21 +1,40 @@
 <script lang="ts">
+  /**
+   * What is selected, said out loud.
+   *
+   * The panel used to resolve a bare id against `snapshot.entities` and render the
+   * overview list whenever that missed — so "you scrubbed past its lifespan", "that is an
+   * event", "that is a scene" and "no such record" all looked like nothing being
+   * selected. `Selection` is resolved upstream against the whole world; this renders
+   * whichever of those it turns out to be.
+   */
   import type { Entity, Snapshot, Terrain } from "./api";
+  import { editableKind, type EditableKind, type Selection } from "./selection";
 
   let {
     snapshot,
     terrain = null,
-    selected = null,
+    selection,
     onselect,
     onedit,
+    onday,
   }: {
     snapshot: Snapshot | null;
     terrain: Terrain | null;
-    selected: string | null;
+    selection: Selection;
     onselect: (id: string | null) => void;
-    onedit: (kind: "entity" | "event", id: string | null) => void;
+    onedit: (kind: EditableKind, id: string | null) => void;
+    /** Scrub, for the records whose answer is "not here — there". */
+    onday: (day: number) => void;
   } = $props();
 
-  const entity = $derived(snapshot?.entities.find((e) => e.id === selected) ?? null);
+  const entity = $derived(selection.state === "present" ? selection.entity : null);
+
+  /** The edit button's target, resolved once so the template does no narrowing. */
+  const editing = $derived.by(() => {
+    const kind = editableKind(selection);
+    return kind && selection.state !== "none" ? { kind, id: selection.id } : null;
+  });
 
   /** The ground under the selected place. Time-invariant, so it is read from the terrain
    *  that was fetched once rather than from the snapshot. */
@@ -33,12 +52,21 @@
   });
 </script>
 
+<!-- One bar for every selected state, so "go back" and "edit this" are in the same place
+     whatever kind of thing was chosen. -->
+{#snippet bar()}
+  <div class="bar">
+    <button class="back" onclick={() => onselect(null)}>‹ all present</button>
+    {#if editing}
+      {@const e = editing}
+      <button class="edit" onclick={() => onedit(e.kind, e.id)}>edit</button>
+    {/if}
+  </div>
+{/snippet}
+
 <aside>
   {#if entity}
-    <div class="bar">
-      <button class="back" onclick={() => onselect(null)}>‹ all present</button>
-      <button class="edit" onclick={() => onedit("entity", entity.id)}>edit</button>
-    </div>
+    {@render bar()}
 
     <header>
       <p class="kind">{entity.type}{entity.primitive ? ` · ${entity.primitive}` : ""}</p>
@@ -108,6 +136,135 @@
     {:else}
       <p class="empty">No facts recorded at this moment.</p>
     {/if}
+
+    <!-- A record whose life the scrubber has left. It stays selected, because the clock
+         moving is not the writer changing their mind about what they were reading. -->
+  {:else if selection.state === "elsewhere"}
+    {@const away = selection}
+    {@render bar()}
+
+    <header>
+      <p class="kind">{away.type}</p>
+      <h2>{away.name}</h2>
+      <p class="id">{away.id}</p>
+    </header>
+
+    <p class="caution">
+      Not present on this day. It exists <strong>{away.window}</strong>.
+    </p>
+
+    {#if away.goto}
+      {@const g = away.goto}
+      <button class="go" onclick={() => onday(g.day)}>go to {g.label} ›</button>
+    {/if}
+
+    <p class="empty">
+      Editing it does not need the scrubber — the form edits the record, not the moment.
+    </p>
+  {:else if selection.state === "event"}
+    {@const ev = selection.event}
+    {@render bar()}
+
+    <header>
+      <p class="kind">{ev.kind || "event"}</p>
+      <h2>{ev.name}</h2>
+      <p class="id">{ev.id}</p>
+    </header>
+
+    <dl>
+      <div class="fact">
+        <dt>when</dt>
+        <dd>{ev.label}</dd>
+      </div>
+      {#if ev.location}
+        <div class="fact">
+          <dt>where</dt>
+          <dd><button class="ref" onclick={() => onselect(ev.location)}>{ev.location}</button></dd>
+        </div>
+      {/if}
+    </dl>
+
+    {#if ev.nominal !== null}
+      {@const at = ev.nominal}
+      <button class="go" onclick={() => onday(at)}>go to it ›</button>
+    {/if}
+
+    {#if ev.participants.length}
+      <p class="label">Who was there</p>
+      <ul>
+        {#each ev.participants as p (p)}
+          <li><button onclick={() => onselect(p)}>{p}</button></li>
+        {/each}
+      </ul>
+    {/if}
+  {:else if selection.state === "scene"}
+    {@const sc = selection.scene}
+    {@render bar()}
+
+    <header>
+      <p class="kind">scene</p>
+      <h2>{sc.name}</h2>
+      <p class="id">{sc.id}</p>
+    </header>
+
+    <dl>
+      <div class="fact">
+        <dt>set on</dt>
+        <dd>{sc.label}</dd>
+      </div>
+      {#if sc.pov}
+        <div class="fact">
+          <dt>through</dt>
+          <dd><button class="ref" onclick={() => onselect(sc.pov)}>{sc.pov}</button></dd>
+        </div>
+      {/if}
+      {#if sc.location}
+        <div class="fact">
+          <dt>where</dt>
+          <dd><button class="ref" onclick={() => onselect(sc.location)}>{sc.location}</button></dd>
+        </div>
+      {/if}
+      <div class="fact">
+        <dt>prose</dt>
+        <dd>{sc.prose ?? "not linked to any chapter yet"}</dd>
+      </div>
+    </dl>
+
+    {#if sc.unreadable}
+      <p class="caution">{sc.unreadable}</p>
+    {/if}
+
+    {#if sc.nominal !== null}
+      {@const at = sc.nominal}
+      <button class="go" onclick={() => onday(at)}>go to it ›</button>
+    {/if}
+
+    {#if sc.on_page.length}
+      <p class="label">On the page</p>
+      <ul>
+        {#each sc.on_page as p (p)}
+          <li><button onclick={() => onselect(p)}>{p}</button></li>
+        {/each}
+      </ul>
+    {/if}
+
+    <!-- Not an error. Something pointed here, and what it pointed at was never written —
+         which is an ordinary state of a world and worth saying rather than swallowing. -->
+  {:else if selection.state === "unknown"}
+    {@render bar()}
+
+    <header>
+      <p class="kind">no such record</p>
+      <h2>Nothing is filed under this id</h2>
+      <p class="id">{selection.id}</p>
+    </header>
+
+    <p class="caution">
+      Whatever pointed here names a record the world does not have — either it has been
+      removed, or it has not been written yet.
+    </p>
+  {:else if selection.state === "looking"}
+    <p class="empty">Looking for {selection.id}…</p>
   {:else if snapshot}
     <header>
       <p class="kind">Present at this moment</p>
@@ -324,6 +481,34 @@
     margin: 0;
     font-size: 13px;
     color: var(--ink-3);
+  }
+
+  /* Takes the writer somewhere, so it reads as a move rather than a label. */
+  .go {
+    align-self: start;
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    padding: 4px 10px;
+    border: 1px solid var(--rule);
+    color: var(--accent);
+  }
+
+  .go:hover {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  /* An id inside a fact row. Monospace, because it is an id and not a name. */
+  .ref {
+    font-family: var(--f-mono);
+    font-size: 11.5px;
+    color: var(--ink);
+    text-align: left;
+  }
+
+  .ref:hover {
+    color: var(--accent);
   }
 
   .ground {

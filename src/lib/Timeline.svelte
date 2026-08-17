@@ -8,7 +8,7 @@
     scenes,
     changePoints,
     onday,
-    onscene,
+    onpick,
   }: {
     span: [number, number];
     day: number;
@@ -16,7 +16,15 @@
     scenes: StoryScene[];
     changePoints: number[];
     onday: (day: number) => void;
-    onscene: (id: string) => void;
+    /**
+     * Select what was clicked, as well as going to it.
+     *
+     * The track is the only place in the app that draws events and scenes, and it used to
+     * do nothing with them but move the clock — so an event could be created and never
+     * reopened, and a scene dot went straight into a form. Selecting first means the
+     * writer reads the record before deciding to change it.
+     */
+    onpick: (id: string) => void;
   } = $props();
 
   let trackEl: HTMLDivElement;
@@ -164,8 +172,9 @@
           onclick={(ev) => {
             ev.stopPropagation();
             onday(e.nominal!);
+            onpick(e.id);
           }}
-          onkeydown={(ev) => ev.key === "Enter" && onday(e.nominal!)}
+          onkeydown={(ev) => ev.key === "Enter" && (onday(e.nominal!), onpick(e.id))}
         >
           <span class="bar"></span>
           <span class="pip"></span>
@@ -186,9 +195,9 @@
         onclick={(ev) => {
           ev.stopPropagation();
           onday(s.nominal!);
-          onscene(s.id);
+          onpick(s.id);
         }}
-        onkeydown={(ev) => ev.key === "Enter" && onscene(s.id)}
+        onkeydown={(ev) => ev.key === "Enter" && onpick(s.id)}
       >
         <span class="dot"></span>
       </div>

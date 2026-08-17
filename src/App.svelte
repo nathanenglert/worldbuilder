@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import {
     api,
     inTauri,
@@ -23,6 +23,7 @@
   import LineageView from "./lib/LineageView.svelte";
   import VersionPanel from "./lib/VersionPanel.svelte";
   import ExportPanel from "./lib/ExportPanel.svelte";
+  import { existenceWindow, resolveLocally, type Selection } from "./lib/selection";
 
   let summary = $state<WorldSummary | null>(null);
   let events = $state<WorldEvent[]>([]);
@@ -44,7 +45,12 @@
   let view = $state<"map" | "lineage">("map");
   let day = $state(0);
   let label = $state("");
+  /**
+   * The address of what is selected. The map and the lineage chart highlight by it, and
+   * `selection` below is what it turns out to mean.
+   */
   let selected = $state<string | null>(null);
+  let selection = $state<Selection>({ state: "none" });
   let error = $state<string | null>(null);
   let busy = $state(false);
   let jumpTo = $state("");
@@ -250,6 +256,71 @@
       if (terrain) backdrop = await api.mapImage();
     } catch (e) {
       error = String(e);
+    }
+  }
+
+  // ---- what the selected id turns out to be
+
+  /**
+   * Resolve the selection against everything the app is holding, and fall back to the
+   * world itself when none of it knows the id.
+   *
+   * This is what stops the panel going quietly blank. Nothing here changes `selected`:
+   * scrubbing past a record's lifespan leaves it selected and changes what the panel
+   * *says* about it, because the writer chose that record and the clock moving is not
+   * them changing their mind.
+   */
+  let selectionToken = 0;
+
+  $effect(() => {
+    const local = resolveLocally(selected, snapshot, events, scenes);
+    const mine = ++selectionToken;
+
+    if (local.state !== "looking") {
+      selection = local;
+      return;
+    }
+
+    // Hold the answer already on screen while a fresh one is fetched. Every change point
+    // the scrubber crosses re-runs this, and a record that is off-window stays off-window
+    // across most of them — showing "looking…" each time would flicker for no new answer.
+    const held = untrack(() => selection);
+    if (!("id" in held) || held.id !== local.id) selection = local;
+
+    void (async () => {
+      const found = await lookUp(local.id);
+      if (mine === selectionToken) selection = found;
+    })();
+  });
+
+  /**
+   * The one question the snapshot cannot answer: is this a record at all, and if so, when?
+   *
+   * The window is reported as authored rather than as day numbers — `0811~` is the world's
+   * own answer and resolving it to a date would overstate what is known. The day behind
+   * the button is resolved, because a button has to go somewhere.
+   */
+  async function lookUp(id: string): Promise<Selection> {
+    try {
+      const record = await api.entityRecord(id);
+      const anchor = record.existence_from ?? record.existence_to;
+      let goto: { day: number; label: string } | null = null;
+      if (anchor) {
+        const d = await api.resolveExpr(anchor);
+        if (d !== null) goto = { day: d, label: await api.formatDay(d) };
+      }
+      return {
+        state: "elsewhere",
+        id,
+        kind: "entity",
+        name: record.name,
+        type: record.type,
+        window: existenceWindow(record.existence_from, record.existence_to),
+        goto,
+      };
+    } catch {
+      // Not an entity, not an event, not a scene, and the world has never heard of it.
+      return { state: "unknown", id, kind: null };
     }
   }
 
@@ -604,7 +675,14 @@
     {:else if panel === "export"}
       <ExportPanel onjump={goto} onclose={() => (panel = "inspector")} />
     {:else}
-      <Inspector {snapshot} {terrain} {selected} onselect={select} onedit={edit} />
+      <Inspector
+        {snapshot}
+        {terrain}
+        {selection}
+        onselect={select}
+        onedit={edit}
+        onday={goto}
+      />
     {/if}
   </div>
 
@@ -612,7 +690,7 @@
     <Timeline
       span={summary.span}
       {scenes}
-      onscene={openScene}
+      onpick={select}
       {day}
       {events}
       changePoints={summary.change_points}
