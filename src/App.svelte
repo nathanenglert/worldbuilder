@@ -23,7 +23,12 @@
   import LineageView from "./lib/LineageView.svelte";
   import VersionPanel from "./lib/VersionPanel.svelte";
   import ExportPanel from "./lib/ExportPanel.svelte";
-  import { existenceWindow, resolveLocally, type Selection } from "./lib/selection";
+  import {
+    existenceWindow,
+    resolveLocally,
+    type EditableKind,
+    type Selection,
+  } from "./lib/selection";
 
   let summary = $state<WorldSummary | null>(null);
   let events = $state<WorldEvent[]>([]);
@@ -35,9 +40,9 @@
   let scenes = $state<StoryScene[]>([]);
   let story = $state<Story | null>(null);
   let lineage = $state<Lineage | null>(null);
-  let panel = $state<
-    "inspector" | "checks" | "proposals" | "story" | "version" | "export" | "edit"
-  >("inspector");
+  /** What the right-hand column is showing. Exactly one of them, always. */
+  type Panel = "inspector" | "checks" | "proposals" | "story" | "version" | "export" | "edit";
+  let panel = $state<Panel>("inspector");
   /**
    * The centre pane. Both are projections of the same timeline — one onto the ground,
    * one onto descent — so they share the scrubber underneath rather than the axis.
@@ -63,7 +68,7 @@
   let version = $state<{ branch: string | null; dirty: number; kind: string } | null>(null);
 
   // ---- authoring
-  let editTarget = $state<{ kind: "entity" | "event" | "scene"; id: string | null } | null>(null);
+  let editTarget = $state<{ kind: EditableKind; id: string | null } | null>(null);
   let editDirty = $state(false);
   let mapMode = $state<"browse" | "marker" | "shape">("browse");
   /**
@@ -74,8 +79,6 @@
     marker: null,
     shape: [],
   });
-  /** A selection the editor is holding back until the writer says what to do with it. */
-  let pendingSelect = $state<string | null>(null);
 
   const definiteCount = $derived(findings.filter((f) => f.certainty === "definite").length);
   const openCount = $derived(findings.filter((f) => f.certainty === "possible").length);
@@ -324,56 +327,170 @@
     }
   }
 
-  /** Take the writer to the moment and the record a finding is about. */
-  function inspectFinding(finding: Finding) {
-    if (finding.at !== null) goto(finding.at);
-    selected = finding.related[0] ?? finding.subject;
-  }
+  // ---- one door out of the form
 
-  /** Open a scene from the timeline band or the story panel. */
-  function openScene(id: string) {
-    if (panel === "edit" && editDirty && id !== editTarget?.id) {
-      pendingSelect = id;
+  /**
+   * One thing the writer asked for.
+   *
+   * Choosing a record and going somewhere were the same call, and that was wrong in both
+   * directions. It navigated when it should not: picking a record named in a version
+   * comparison forced the panel to the inspector and threw the comparison away, and
+   * getting it back meant re-running it. And most of the app never went through it at
+   * all — the header chips, the edit button, the form's own back button and the world
+   * opener each moved the panel themselves, so an unsaved draft could vanish with nobody
+   * asked. Saying which of the two is meant is what lets one guard cover every route.
+   */
+  type Intent =
+    | { act: "select"; id: string | null; show: boolean }
+    | { act: "panel"; panel: Exclude<Panel, "edit"> }
+    | { act: "edit"; kind: EditableKind; id: string | null }
+    | { act: "close" }
+    | { act: "open"; path: string };
+
+  /** What the form is holding back until the writer says what to do with it. */
+  let held = $state<Intent | null>(null);
+
+  /**
+   * The one door. Everything that changes what is on screen comes through here, because
+   * everything that changes what is on screen can cost an unsaved draft.
+   */
+  function intend(intent: Intent) {
+    if (settled(intent)) return;
+    if (costsTheDraft(intent)) {
+      held = intent;
       return;
     }
-    edit("scene", id);
+    carry(intent);
   }
 
-  function select(id: string | null) {
-    // The single choke point for every way of choosing a record — the map, the inspector
-    // list, a finding. Guarding here is what stops an unsaved edit disappearing without
-    // anybody being asked.
-    if (panel === "edit" && editDirty && id !== editTarget?.id) {
-      pendingSelect = id;
+  /**
+   * Asked for what is already the case.
+   *
+   * Worth its own arm because `carry` is not idempotent: re-opening the form on the
+   * record it is already showing hands it a fresh `target`, which reloads the record and
+   * takes the draft with it. That is reachable — a scene dot on the map opens the form,
+   * and it is still drawn while that scene is being edited.
+   */
+  function settled(intent: Intent): boolean {
+    return (
+      intent.act === "edit" &&
+      panel === "edit" &&
+      editTarget?.kind === intent.kind &&
+      editTarget?.id === intent.id
+    );
+  }
+
+  /**
+   * Would carrying this out take the form off the screen with unsaved work still in it?
+   *
+   * A selection only costs when it would navigate, which a deselection never does — so
+   * clicking empty map to drop a highlight is free, as it was always meant to be. Note
+   * there is no exemption for the record being edited: clicking it on the map still
+   * swaps the form for the inspector, which is a loss like any other. The old guard let
+   * exactly that one through.
+   */
+  function costsTheDraft(intent: Intent): boolean {
+    if (panel !== "edit" || !editDirty) return false;
+    if (intent.act === "select") return intent.show && intent.id !== null;
+    return true;
+  }
+
+  function carry(intent: Intent) {
+    if (intent.act === "select") {
+      selected = intent.id;
+      if (!intent.show || intent.id === null) return;
+      if (panel === "edit") dropForm();
+      panel = "inspector";
       return;
     }
-    selected = id;
-    if (id) panel = "inspector";
+
+    if (panel === "edit") dropForm();
+
+    if (intent.act === "edit") {
+      editTarget = { kind: intent.kind, id: intent.id };
+      if (intent.id) selected = intent.id;
+      panel = "edit";
+    } else if (intent.act === "open") {
+      // Set here rather than left to `open`, which only gets there after the load: a
+      // panel that still said "edit" over a form that had just been dropped would be a
+      // lie for as long as the world takes to read, and for good if the path is wrong.
+      panel = "inspector";
+      void open(intent.path);
+    } else {
+      panel = intent.act === "close" ? "inspector" : intent.panel;
+    }
   }
 
-  function resolvePendingSelect(discard: boolean) {
-    const held = pendingSelect;
-    pendingSelect = null;
-    if (!discard) return;
-    editDirty = false;
-    closeEditor();
-    selected = held;
-    if (held) panel = "inspector";
-  }
-
-  function edit(kind: "entity" | "event" | "scene", id: string | null) {
-    editTarget = { kind, id };
-    editGeometry = { marker: null, shape: [] };
-    panel = "edit";
-    if (id) selected = id;
-  }
-
-  function closeEditor() {
+  /**
+   * Everything the form owns, dropped — including the geometry, which is the map's copy
+   * of the draft and would otherwise be drawn over the next record edited.
+   *
+   * The form's state does not outlive its panel. It used to: `editDirty` left standing
+   * after the writer navigated away was a discard prompt about a draft already gone.
+   */
+  function dropForm() {
     editTarget = null;
     editDirty = false;
     mapMode = "browse";
     editGeometry = { marker: null, shape: [] };
-    panel = "inspector";
+  }
+
+  /** The writer has answered the form's question about what it was holding. */
+  function resolveHeld(discard: boolean) {
+    const intent = held;
+    held = null;
+    if (!discard || !intent) return;
+    editDirty = false;
+    carry(intent);
+  }
+
+  // ---- what the rest of the app calls
+
+  /** Choose a record and put it in front of the writer: the map, the timeline, a finding. */
+  const inspect = (id: string | null) => intend({ act: "select", id, show: true });
+  /** Choose a record without moving the panel, for a list that must survive being read. */
+  const pick = (id: string) => intend({ act: "select", id, show: false });
+  /** A header chip: the panel it names, or back out of it if that is what is showing. */
+  const toggle = (p: Exclude<Panel, "edit">) =>
+    intend({ act: "panel", panel: panel === p ? "inspector" : p });
+  const openEditor = (kind: EditableKind, id: string | null) =>
+    intend({ act: "edit", kind, id });
+  const closePanel = () => intend({ act: "close" });
+
+  /** Take the writer to the moment and the record a finding is about. */
+  function inspectFinding(finding: Finding) {
+    if (finding.at !== null) goto(finding.at);
+    inspect(finding.related[0] ?? finding.subject);
+  }
+
+  /**
+   * What is being held, as the subject of "… does not keep them."
+   *
+   * The prompt used to be a bare "Discard your changes?" for the one intent that could
+   * reach it. Now that every route arrives here, it has to say which one.
+   */
+  const panelNames: Record<Exclude<Panel, "edit">, string> = {
+    inspector: "world",
+    checks: "consistency checks",
+    proposals: "review queue",
+    story: "story panel",
+    version: "version panel",
+    export: "publish panel",
+  };
+
+  function describe(intent: Intent): string {
+    switch (intent.act) {
+      case "select":
+        return `Opening ${intent.id}`;
+      case "panel":
+        return `Opening the ${panelNames[intent.panel]}`;
+      case "edit":
+        return intent.id === null ? `Starting a new ${intent.kind}` : `Opening ${intent.id}`;
+      case "open":
+        return `Opening ${intent.path.split("/").pop()}`;
+      case "close":
+        return "Leaving this form";
+    }
   }
 
   /**
@@ -464,7 +581,7 @@
           class="chip"
           class:bad={definiteCount > 0}
           class:note={definiteCount === 0 && openCount > 0}
-          onclick={() => (panel = panel === "checks" ? "inspector" : "checks")}
+          onclick={() => toggle("checks")}
           title="Deterministic consistency rules"
         >
           {#if definiteCount > 0}
@@ -479,7 +596,7 @@
         <button
           class="chip"
           class:live={pendingCount > 0}
-          onclick={() => (panel = panel === "proposals" ? "inspector" : "proposals")}
+          onclick={() => toggle("proposals")}
           title="Changes awaiting review"
         >
           {pendingCount} pending
@@ -490,7 +607,7 @@
             class="chip"
             class:live={story.standing === "linked"}
             class:bad={story.standing === "root_missing"}
-            onclick={() => (panel = panel === "story" ? "inspector" : "story")}
+            onclick={() => toggle("story")}
             title="What of this world reaches the page"
           >
             {#if story.standing === "linked"}
@@ -508,7 +625,7 @@
             class="chip"
             class:live={version.dirty === 0}
             class:note={version.dirty > 0}
-            onclick={() => (panel = panel === "version" ? "inspector" : "version")}
+            onclick={() => toggle("version")}
             title="Save points and what-ifs"
           >
             {#if version.dirty > 0}
@@ -523,18 +640,30 @@
 
         <!-- Grouped so the row breaks between "look at" and "make", never mid-group. -->
         <span class="group">
-          <button class="chip make" onclick={() => edit("entity", null)} title="Write a new record">
+          <button
+            class="chip make"
+            onclick={() => openEditor("entity", null)}
+            title="Write a new record"
+          >
             + record
           </button>
-          <button class="chip make" onclick={() => edit("event", null)} title="Write a new event">
+          <button
+            class="chip make"
+            onclick={() => openEditor("event", null)}
+            title="Write a new event"
+          >
             + event
           </button>
-          <button class="chip make" onclick={() => edit("scene", null)} title="Write a new scene">
+          <button
+            class="chip make"
+            onclick={() => openEditor("scene", null)}
+            title="Write a new scene"
+          >
             + scene
           </button>
           <button
             class="chip make"
-            onclick={() => (panel = panel === "export" ? "inspector" : "export")}
+            onclick={() => toggle("export")}
             title="Write this world out as one file"
           >
             ⤓ publish
@@ -565,7 +694,7 @@
         if (!path) return;
         opening = false;
         openPath = "";
-        void open(path);
+        intend({ act: "open", path });
       }}
     >
       <input
@@ -582,7 +711,7 @@
           title={p}
           onclick={() => {
             opening = false;
-            void open(p);
+            intend({ act: "open", path: p });
           }}
         >
           {p.split("/").pop()}
@@ -606,7 +735,7 @@
           {terrain}
           {backdrop}
           {selected}
-          onselect={select}
+          onselect={inspect}
           mode={mapMode}
           draft={panel === "edit" ? editGeometry : null}
           onmarker={(p) => (editGeometry = { ...editGeometry, marker: p })}
@@ -615,10 +744,10 @@
           scenes={placedScenes}
           activeScene={panel === "edit" && editTarget?.kind === "scene" ? editTarget.id : null}
           showStory={panel === "story" || (panel === "edit" && editTarget?.kind === "scene")}
-          onscene={openScene}
+          onscene={(id) => openEditor("scene", id)}
         />
       {:else}
-        <LineageView {lineage} {day} {selected} onselect={select} onday={goto} />
+        <LineageView {lineage} {day} {selected} onselect={inspect} onday={goto} />
       {/if}
 
       {#if summary}
@@ -640,47 +769,43 @@
         {summary}
         geometry={editGeometry}
         mode={mapMode}
-        {pendingSelect}
+        holding={held && describe(held)}
         onmode={(m) => (mapMode = m)}
         ongeometry={(g) => (editGeometry = g)}
         ondirty={(d) => (editDirty = d)}
         onsaved={afterWrite}
-        onclose={closeEditor}
+        onclose={closePanel}
         onjump={goto}
-        onresolveselect={resolvePendingSelect}
+        onresolve={resolveHeld}
       />
     {:else if panel === "checks"}
-      <Findings {findings} onjump={inspectFinding} onclose={() => (panel = "inspector")} />
+      <Findings {findings} onjump={inspectFinding} onclose={closePanel} />
     {:else if panel === "proposals"}
-      <Proposals
-        {proposals}
-        ondecided={afterDecision}
-        onclose={() => (panel = "inspector")}
-      />
+      <Proposals {proposals} ondecided={afterDecision} onclose={closePanel} />
     {:else if panel === "story"}
       <StoryPanel
         {story}
         {scenes}
-        onselect={select}
-        onscene={openScene}
-        onclose={() => (panel = "inspector")}
+        onselect={inspect}
+        onscene={(id) => openEditor("scene", id)}
+        onclose={closePanel}
       />
     {:else if panel === "version"}
       <VersionPanel
         onchanged={afterBranch}
         onstatus={(v) => (version = { branch: v.branch, dirty: v.dirty.length, kind: v.standing.kind })}
-        onselect={select}
-        onclose={() => (panel = "inspector")}
+        onselect={pick}
+        onclose={closePanel}
       />
     {:else if panel === "export"}
-      <ExportPanel onjump={goto} onclose={() => (panel = "inspector")} />
+      <ExportPanel onjump={goto} onclose={closePanel} />
     {:else}
       <Inspector
         {snapshot}
         {terrain}
         {selection}
-        onselect={select}
-        onedit={edit}
+        onselect={inspect}
+        onedit={openEditor}
         onday={goto}
       />
     {/if}
@@ -690,7 +815,7 @@
     <Timeline
       span={summary.span}
       {scenes}
-      onpick={select}
+      onpick={inspect}
       {day}
       {events}
       changePoints={summary.change_points}

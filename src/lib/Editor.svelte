@@ -52,27 +52,32 @@
     summary,
     geometry,
     mode,
-    pendingSelect,
+    holding,
     onmode,
     ongeometry,
     ondirty,
     onsaved,
     onclose,
     onjump,
-    onresolveselect,
+    onresolve,
   }: {
     target: { kind: "entity" | "event" | "scene"; id: string | null };
     summary: WorldSummary | null;
     geometry: { marker: [number, number] | null; shape: [number, number][] };
     mode: "browse" | "marker" | "shape";
-    pendingSelect: string | null;
+    /**
+     * What the app is holding back rather than carry out over an unsaved draft, said as
+     * the subject of a sentence — "Opening the consistency checks". A phrase rather than
+     * the intent itself: the form has to *say* what is waiting, not decide about it.
+     */
+    holding: string | null;
     onmode: (mode: "browse" | "marker" | "shape") => void;
     ongeometry: (g: { marker: [number, number] | null; shape: [number, number][] }) => void;
     ondirty: (dirty: boolean) => void;
     onsaved: (summary: WorldSummary, markerChanged: boolean) => void;
     onclose: () => void;
     onjump: (day: number) => void;
-    onresolveselect: (discard: boolean) => void;
+    onresolve: (discard: boolean) => void;
   } = $props();
 
   type Phase = "loading" | "clean" | "dirty" | "validating" | "reviewed" | "saving" | "failed";
@@ -410,13 +415,17 @@
     </div>
   {/if}
 
-  {#if pendingSelect !== null}
-    <!-- The app is holding a selection back rather than silently throwing away an edit. -->
+  {#if holding !== null}
+    <!-- The app is holding something back rather than silently throwing away an edit.
+         Naming it matters now that every way out of this form arrives here: "discard"
+         means something different when the alternative is a new blank record than when
+         it is the panel you were reading a minute ago. -->
     <div class="caution confirm">
-      <p>Discard your changes?</p>
+      <p><strong>Discard your changes?</strong></p>
+      <p class="lost">{holding} does not keep them.</p>
       <div class="row">
-        <button class="danger" onclick={() => onresolveselect(true)}>discard</button>
-        <button onclick={() => onresolveselect(false)}>keep editing</button>
+        <button class="danger" onclick={() => onresolve(true)}>discard</button>
+        <button onclick={() => onresolve(false)}>keep editing</button>
       </div>
     </div>
   {/if}
