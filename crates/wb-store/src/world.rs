@@ -1,6 +1,6 @@
 //! An assembled world, and the time-indexed queries the map and timeline run against.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use wb_core::{
@@ -459,31 +459,13 @@ impl World {
 
     /// Ancestors, breadth-first. Lineage needs no subsystem: it is parentage edges over
     /// entities that already carry existence intervals.
+    ///
+    /// The walk itself lives in [`crate::kin`], along with the other direction and the
+    /// dynasty grouping. This stays as the convenient spelling for the common case; the
+    /// MCP server used to keep a second copy of both directions beside it, which is
+    /// exactly how two answers to one question start disagreeing.
     pub fn ancestors(&self, id: &str, depth: usize) -> Vec<&Entity> {
-        let mut out = Vec::new();
-        let mut seen = BTreeSet::new();
-        let mut frontier = vec![id.to_string()];
-
-        for _ in 0..depth {
-            let mut next = Vec::new();
-            for current in &frontier {
-                let Some(entity) = self.entities.get(current) else { continue };
-                for parent_id in &entity.parents {
-                    if !seen.insert(parent_id.clone()) {
-                        continue;
-                    }
-                    if let Some(parent) = self.entities.get(parent_id) {
-                        out.push(parent);
-                        next.push(parent_id.clone());
-                    }
-                }
-            }
-            if next.is_empty() {
-                break;
-            }
-            frontier = next;
-        }
-        out
+        crate::kin::ancestors(self, id, depth).into_iter().map(|r| r.entity).collect()
     }
 
     /// Resolve an ad-hoc date expression against this world, so `@evt_siege+2y` works
