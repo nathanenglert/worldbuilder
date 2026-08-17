@@ -48,11 +48,24 @@ export interface WorldSummary {
   undeclared_types: string[];
   types: { name: string; primitive: string }[];
   /**
-   * Every id in the world, entities and events together — they share one namespace.
-   * Check a new id against this, never against `snapshot.entities`, which is filtered
-   * by date and would let a clash go unnoticed until the save.
+   * Every record in the world, entities, events and scenes together — they share one
+   * namespace. Check a new id against this, never against `snapshot.entities`, which is
+   * filtered by date and would let a clash go unnoticed until the save.
    */
-  ids: string[];
+  records: WorldRecord[];
+  /** What this world's facts already call things, most-used first. Offered, not enforced. */
+  attrs: { name: string; count: number }[];
+}
+
+/** One record, named well enough to find it and to say what it is. */
+export interface WorldRecord {
+  id: string;
+  name: string;
+  kind: "entity" | "event" | "scene";
+  /** An entity's declared type or an event's kind. A scene has neither and sends "". */
+  type: string;
+  /** What the prose calls it — searched alongside the name, because writers use both. */
+  aka: string[];
 }
 
 export interface WorldEvent {

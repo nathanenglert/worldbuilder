@@ -5,6 +5,7 @@
 //! is, whether the claim is settled — are resolved here rather than reassembled in the
 //! UI, so there is one place that can be wrong about them.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -121,18 +122,56 @@ pub struct WorldSummary {
     /// The type vocabulary, for the authoring form's type control. Open, not closed —
     /// an undeclared type still loads, so the control offers these and accepts others.
     pub types: Vec<TypeDto>,
-    /// Every id in the world, entities and events together, because they share one
-    /// namespace. Used to check a new id for collisions and to autocomplete references.
-    /// Deliberately not derived from a snapshot, which is filtered by date: checking
-    /// against that would let a writer create `place_marrow` on a day Marrow does not
-    /// exist and only discover the clash when they pressed save.
-    pub ids: Vec<String>,
+    /// Every record in the world, entities, events and scenes together, because they
+    /// share one id namespace.
+    ///
+    /// Deliberately not derived from a snapshot, which is filtered by date: checking a
+    /// new id against that would let a writer create `place_marrow` on a day Marrow does
+    /// not exist and only discover the clash when they pressed save.
+    ///
+    /// This replaced a bare list of ids. Every consumer wanted more than the id and had
+    /// nowhere to get it: the reference boxes offered `act_aldric_vane` with no way to
+    /// know that was Aldric, and there was no way at all to go to a record by the name
+    /// the writer thinks of it by.
+    pub records: Vec<RecordDto>,
+    /// Every attribute any fact in this world asserts, most-used first.
+    ///
+    /// The world's own vocabulary, offered rather than enforced — the same stance
+    /// [`Self::types`] takes, and for the same reason: a new attribute is an ordinary
+    /// thing to write, and a form that only accepted the existing ones would be stricter
+    /// than the data model underneath it.
+    pub attrs: Vec<AttrDto>,
 }
 
 #[derive(Serialize)]
 pub struct TypeDto {
     pub name: String,
     pub primitive: &'static str,
+}
+
+/// One record, named well enough to find it and to say what it is.
+#[derive(Serialize)]
+pub struct RecordDto {
+    pub id: String,
+    pub name: String,
+    /// `entity` · `event` · `scene`. Settled here because the whole world is in front of
+    /// us; an id alone cannot answer it.
+    pub kind: &'static str,
+    /// An entity's declared type or an event's kind. A scene has neither and sends "".
+    #[serde(rename = "type")]
+    pub type_name: String,
+    /// What the prose calls it. Carried because a writer hunting for Aldric is at least
+    /// as likely to type "the duke", and that is exactly the string the manuscript
+    /// scanner already matches on.
+    pub aka: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct AttrDto {
+    pub name: String,
+    /// How many records assert it. The order this list is sorted by, and the reason a
+    /// world's real vocabulary rises above the one-off somebody typed once.
+    pub count: usize,
 }
 
 impl WorldSummary {
@@ -165,15 +204,56 @@ impl WorldSummary {
                 .values()
                 .map(|t| TypeDto { name: t.name.clone(), primitive: primitive_name(t.primitive) })
                 .collect(),
-            ids: world
-                .entities
-                .keys()
-                .chain(world.events.keys())
-                .chain(world.scenes.keys())
-                .cloned()
-                .collect(),
+            records: records_of(world),
+            attrs: attrs_of(world),
         }
     }
+}
+
+fn records_of(world: &World) -> Vec<RecordDto> {
+    let entities = world.entities.values().map(|e| RecordDto {
+        id: e.id.clone(),
+        name: e.name.clone(),
+        kind: "entity",
+        type_name: e.type_name.clone(),
+        aka: e.aliases.clone(),
+    });
+    let events = world.events.values().map(|e| RecordDto {
+        id: e.id.clone(),
+        name: e.name.clone(),
+        kind: "event",
+        type_name: e.kind.clone(),
+        aka: Vec::new(),
+    });
+    let scenes = world.scenes.values().map(|s| RecordDto {
+        id: s.id.clone(),
+        name: s.name.clone(),
+        kind: "scene",
+        type_name: String::new(),
+        aka: Vec::new(),
+    });
+    entities.chain(events).chain(scenes).collect()
+}
+
+/// Counted by record rather than by fact, so an attribute split across six windows on one
+/// entity — which is the shape every changing number takes here — does not outrank one
+/// that half the world asserts once.
+fn attrs_of(world: &World) -> Vec<AttrDto> {
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    for entity in world.entities.values() {
+        let mut seen: BTreeSet<&str> = BTreeSet::new();
+        for fact in &entity.facts {
+            if seen.insert(fact.attr.as_str()) {
+                *counts.entry(fact.attr.as_str()).or_default() += 1;
+            }
+        }
+    }
+    let mut attrs: Vec<AttrDto> =
+        counts.into_iter().map(|(name, count)| AttrDto { name: name.to_string(), count }).collect();
+    // Most-used first, then alphabetically, so the order is stable across loads and a
+    // world's real vocabulary is what the writer sees before anything they typed once.
+    attrs.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
+    attrs
 }
 
 #[derive(Serialize)]

@@ -11,7 +11,16 @@
   import { api, type ExportPreview, type ExportScope } from "./api";
   import DateField from "./form/DateField.svelte";
 
-  let { onclose, onjump }: { onclose: () => void; onjump: (day: number) => void } = $props();
+  let {
+    onclose,
+    onjump,
+    anchors,
+  }: {
+    onclose: () => void;
+    onjump: (day: number) => void;
+    /** Event expressions for the `as of` box. See `DateField`. */
+    anchors: string[];
+  } = $props();
 
   const SCOPES: { key: ExportScope; label: string; note: string }[] = [
     {
@@ -115,7 +124,13 @@
   <p class="explain">{note}</p>
 
   {#if scope === "as-of"}
-    <DateField bind:value={at} label="the day it is written" hint="0812-04 · @evt_siege_of_marrow" {onjump} />
+    <DateField
+      bind:value={at}
+      label="the day it is written"
+      hint="0812-04 · @evt_siege_of_marrow"
+      {anchors}
+      {onjump}
+    />
   {/if}
 
   {#if preview}

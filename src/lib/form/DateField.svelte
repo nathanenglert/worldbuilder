@@ -14,13 +14,13 @@
    */
   import { api } from "../api";
   import Field from "./Field.svelte";
-  import TextInput from "./TextInput.svelte";
 
   let {
     value = $bindable(""),
     label,
     hint = "",
     error = null,
+    anchors = [],
     onjump,
     onsettled,
   }: {
@@ -28,6 +28,15 @@
     label: string;
     hint?: string;
     error?: string | null;
+    /**
+     * The events a date can be pinned to, as the expressions they would be typed as.
+     *
+     * `@evt_siege_of_marrow+2y` is the most useful thing this box can hold — it is how a
+     * date *moves* when the siege does — and it only works if the writer can produce the
+     * id from memory. Offering them is the difference between a documented grammar and a
+     * usable one.
+     */
+    anchors?: string[];
     onjump?: (day: number) => void;
     onsettled?: () => void;
   } = $props();
@@ -74,7 +83,23 @@
 
 <Field {label} {hint} error={error ?? complaint}>
   <div class="row">
-    <TextInput bind:value mono placeholder="0812-04 · 812~ · @event+2y" onblur={onsettled} />
+    <!-- The list is anchors only. A datalist filters as you type, so `@` narrows to
+         exactly them, and a plain `0812-04` is untouched by having one attached. -->
+    <input
+      type="text"
+      class="date"
+      bind:value
+      list={anchors.length ? "date-anchors" : undefined}
+      placeholder="0812-04 · 812~ · @event+2y"
+      onblur={onsettled}
+    />
+    {#if anchors.length}
+      <datalist id="date-anchors">
+        {#each anchors as a (a)}
+          <option value={a}></option>
+        {/each}
+      </datalist>
+    {/if}
     {#if day !== null && onjump}
       <button type="button" class="jump" title="Go to this date" onclick={() => onjump(day!)}>
         →
@@ -91,6 +116,28 @@
 <style>
   .row {
     display: flex;
+  }
+
+  /* `TextInput` with a list attached, spelled out rather than given a `list` prop: this
+     is the only box in the app whose completions are a grammar rather than a vocabulary,
+     and the datalist has to sit beside the input that names it. */
+  .date {
+    width: 100%;
+    padding: 6px 9px;
+    background: var(--surface);
+    color: var(--ink);
+    border: 1px solid var(--rule);
+    font-family: var(--f-mono);
+    font-size: 11.5px;
+  }
+
+  .date::placeholder {
+    color: var(--rule-strong);
+  }
+
+  .date:focus {
+    outline: none;
+    border-color: var(--rule-strong);
   }
 
   .jump {

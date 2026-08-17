@@ -4,6 +4,7 @@
 //! rendering decisions get checked — which polity holds a region, what colour that is,
 //! and whether the claim is settled enough to draw a solid border.
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use wb_core::{CivilDate, Day};
@@ -117,6 +118,61 @@ fn the_summary_spans_past_every_change_point() {
     let last = *summary.change_points.last().unwrap();
     assert!(summary.span[0] < first, "the track needs room before the first change");
     assert!(summary.span[1] > last, "and after the last");
+}
+
+/// One namespace, three primitives. The go-to box and the id collision check both read
+/// this, and both are wrong the moment it is filtered by anything.
+#[test]
+fn every_record_in_the_world_is_addressable_whatever_kind_it_is() {
+    let world = vashen();
+    let summary = WorldSummary::of(&world);
+
+    let kinds = |k: &str| summary.records.iter().filter(|r| r.kind == k).count();
+    assert_eq!(kinds("entity"), summary.entity_count);
+    assert_eq!(kinds("event"), summary.event_count);
+    assert_eq!(kinds("scene"), summary.scene_count);
+    assert_eq!(summary.records.len(), 12 + 3 + 3);
+
+    let ids: BTreeSet<&str> = summary.records.iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(ids.len(), summary.records.len(), "ids are unique across all three");
+
+    let aldric = summary.records.iter().find(|r| r.id == "act_aldric_vane").unwrap();
+    assert_eq!(aldric.name, "Aldric Vane");
+    assert_eq!(aldric.type_name, "noble");
+    assert_eq!(aldric.aka, ["Aldric", "the duke"], "what the prose calls him, to search on");
+
+    let siege = summary.records.iter().find(|r| r.id == "evt_siege_of_marrow").unwrap();
+    assert_eq!(siege.type_name, "conquest", "an event sends its kind where a type would be");
+
+    let scene = summary.records.iter().find(|r| r.kind == "scene").unwrap();
+    assert_eq!(scene.type_name, "", "and a scene has neither, and says so");
+}
+
+/// The vocabulary the form offers back. Counted by record, not by fact — Marrow's
+/// population is asserted over three windows and is still one world that tracks it.
+#[test]
+fn the_attribute_vocabulary_is_ordered_by_how_much_of_the_world_uses_it() {
+    let world = vashen();
+    let summary = WorldSummary::of(&world);
+
+    let counts: Vec<(usize, &str)> =
+        summary.attrs.iter().map(|a| (a.count, a.name.as_str())).collect();
+    assert!(counts.windows(2).all(|w| w[0].0 >= w[1].0), "most-used first: {counts:?}");
+
+    let population = summary.attrs.iter().find(|a| a.name == "population").unwrap();
+    let windows = world.entities["place_marrow"]
+        .facts
+        .iter()
+        .filter(|f| f.attr == "population")
+        .count();
+    assert!(windows > 1, "the fixture is what we think it is: {windows} windows");
+    assert_eq!(population.count, 1, "one record tracks it, however many times it changed");
+
+    assert!(summary.attrs.iter().any(|a| a.name == "owner"), "the map's own attribute");
+    assert!(
+        !summary.attrs.iter().any(|a| a.name.is_empty()),
+        "nothing nameless gets offered"
+    );
 }
 
 /// The scrubber's premise, checked against the payload the UI compares: sampling every

@@ -23,8 +23,10 @@
   import LineageView from "./lib/LineageView.svelte";
   import VersionPanel from "./lib/VersionPanel.svelte";
   import ExportPanel from "./lib/ExportPanel.svelte";
+  import GoTo from "./lib/GoTo.svelte";
   import {
     existenceWindow,
+    nameOf,
     resolveLocally,
     type EditableKind,
     type Selection,
@@ -58,7 +60,7 @@
   let selection = $state<Selection>({ state: "none" });
   let error = $state<string | null>(null);
   let busy = $state(false);
-  let jumpTo = $state("");
+  let jumpExpr = $state("");
   let rootPath = $state("");
 
   // ---- opening somebody else's world
@@ -85,6 +87,16 @@
   const pendingCount = $derived(proposals.filter((p) => p.status === "pending").length);
   /** Scenes whose location has a marker — the ones the map can actually draw a path through. */
   const placedScenes = $derived(scenes.filter((s) => s.point !== null));
+  /**
+   * The events, written the way a date box would hang a date off one of them.
+   *
+   * Derived here rather than in each panel that needs it, so there is one answer to what
+   * an anchor is. `@evt_siege_of_marrow+2y` is the expression that makes a date *move*
+   * when the siege does, and until now it required remembering the id exactly.
+   */
+  const anchors = $derived(
+    (summary?.records ?? []).filter((r) => r.kind === "event").map((r) => `@${r.id}`),
+  );
 
   // Makes the change-point premise visible: drag across three centuries and the query
   // count barely moves, because the world only changes at a handful of instants.
@@ -161,6 +173,51 @@
     }
   }
 
+  // ---- the way back
+
+  /**
+   * Where the writer was before something moved them, and what to call it.
+   *
+   * One mark, not a stack. Going back leaves a mark where you were, so a second press
+   * returns — and the label always names the destination, which is what stops a button
+   * called "back" from being a lie the second time it is pressed.
+   */
+  let mark = $state<{ day: number; id: string | null; where: string | null; when: string } | null>(
+    null,
+  );
+
+  function markHere() {
+    mark = { day, id: selected, where: nameOf(selection), when: label };
+  }
+
+  /**
+   * The chip's label: whichever of the two the writer actually left.
+   *
+   * A mark is a record *and* a day, and naming the wrong one is a small lie. Going to a
+   * record's own existence window moves only the clock, and a chip reading "‹ Aldric Vane
+   * III" while Aldric III is what is on screen says nothing about where it goes.
+   */
+  const backLabel = $derived.by(() => {
+    if (!mark) return null;
+    return mark.id !== null && mark.id !== selected ? (mark.where ?? mark.id) : mark.when;
+  });
+
+  /** A mark on the spot the writer is standing on is not a way back to anywhere. */
+  const canGoBack = $derived(!!mark && (mark.id !== selected || mark.day !== day));
+
+  /**
+   * Go to a day the writer *named* rather than scrubbed to, leaving a mark behind.
+   *
+   * The line is whether they could see where they were going. Dragging the head moves
+   * through everything in between and marking each step would fill the button with
+   * places nobody chose; a typed date, a finding, or a record's own existence window is
+   * a teleport, and a teleport needs a way back.
+   */
+  function jumpTo(d: number) {
+    markHere();
+    goto(d);
+  }
+
   async function open(path: string) {
     busy = true;
     error = null;
@@ -179,6 +236,8 @@
       mapQueries = 0;
       scrubSteps = 0;
       selected = null;
+      // A way back into a world that is no longer open leads nowhere.
+      mark = null;
       panel = "inspector";
 
       const [lo, hi] = summary.span;
@@ -202,7 +261,7 @@
   }
 
   async function jump() {
-    const expr = jumpTo.trim();
+    const expr = jumpExpr.trim();
     if (!expr) return;
     try {
       const resolved = await api.resolveExpr(expr);
@@ -210,7 +269,7 @@
         error = `"${expr}" has no position on the timeline.`;
       } else {
         error = null;
-        goto(resolved);
+        jumpTo(resolved);
       }
     } catch (e) {
       error = String(e);
@@ -253,6 +312,9 @@
       if (lineage) await loadLineage();
       void loadVersion();
       selected = null;
+      // Every file in the folder was just rewritten; the record the mark named may not
+      // be on this branch at all.
+      mark = null;
       lastBucket = -1;
       await fetchSnapshot(day);
       terrain = await api.terrain();
@@ -342,6 +404,13 @@
    */
   type Intent =
     | { act: "select"; id: string | null; show: boolean }
+    /**
+     * A teleport: show the record, drop a mark, and move the clock if a day came with
+     * it. Separate from `select` because the two differ in what they cost the writer —
+     * clicking a marker they can already see needs no way back, and arriving somewhere
+     * they could not see does.
+     */
+    | { act: "visit"; id: string | null; day: number | null }
     | { act: "panel"; panel: Exclude<Panel, "edit"> }
     | { act: "edit"; kind: EditableKind; id: string | null }
     | { act: "close" }
@@ -388,6 +457,10 @@
    * there is no exemption for the record being edited: clicking it on the map still
    * swaps the form for the inspector, which is a loss like any other. The old guard let
    * exactly that one through.
+   *
+   * The clock alone is not here at all, and that is deliberate: the form edits the record
+   * and not the snapshot, so scrubbing under an open draft changes what the map shows and
+   * nothing the writer typed. A `visit` costs only because it also moves the panel.
    */
   function costsTheDraft(intent: Intent): boolean {
     if (panel !== "edit" || !editDirty) return false;
@@ -395,10 +468,23 @@
     return true;
   }
 
+
   function carry(intent: Intent) {
     if (intent.act === "select") {
       selected = intent.id;
       if (!intent.show || intent.id === null) return;
+      if (panel === "edit") dropForm();
+      panel = "inspector";
+      return;
+    }
+
+    if (intent.act === "visit") {
+      // The mark is dropped in here rather than at the call sites, so it records where
+      // the writer actually was — not where they were when they asked, which is a
+      // different place if the form held the question while they answered it.
+      if (intent.day === null) markHere();
+      else jumpTo(intent.day);
+      selected = intent.id;
       if (panel === "edit") dropForm();
       panel = "inspector";
       return;
@@ -446,10 +532,13 @@
 
   // ---- what the rest of the app calls
 
-  /** Choose a record and put it in front of the writer: the map, the timeline, a finding. */
+  /** Choose a record the writer could already see: the map, the lineage chart, the track. */
   const inspect = (id: string | null) => intend({ act: "select", id, show: true });
   /** Choose a record without moving the panel, for a list that must survive being read. */
   const pick = (id: string) => intend({ act: "select", id, show: false });
+  /** Arrive somewhere the writer could not see, and leave a way back. */
+  const visit = (id: string | null, day: number | null = null) =>
+    intend({ act: "visit", id, day });
   /** A header chip: the panel it names, or back out of it if that is what is showing. */
   const toggle = (p: Exclude<Panel, "edit">) =>
     intend({ act: "panel", panel: panel === p ? "inspector" : p });
@@ -459,8 +548,25 @@
 
   /** Take the writer to the moment and the record a finding is about. */
   function inspectFinding(finding: Finding) {
-    if (finding.at !== null) goto(finding.at);
-    inspect(finding.related[0] ?? finding.subject);
+    visit(finding.related[0] ?? finding.subject, finding.at);
+  }
+
+  // ---- going to a record by name
+
+  let goingTo = $state(false);
+
+  /**
+   * Cmd/Ctrl-K, the one keyboard shortcut in the app.
+   *
+   * On `window` rather than on an element because it has to work from anywhere,
+   * including from inside the form — where it is most useful, since checking what an id
+   * refers to is exactly what a writer stops mid-record to do. Nothing is lost by
+   * opening it: the pick goes through `intend` like every other way of choosing.
+   */
+  function hotkey(e: KeyboardEvent) {
+    if (e.key !== "k" || !(e.metaKey || e.ctrlKey)) return;
+    e.preventDefault();
+    goingTo = !goingTo;
   }
 
   /**
@@ -482,6 +588,8 @@
     switch (intent.act) {
       case "select":
         return `Opening ${intent.id}`;
+      case "visit":
+        return intent.id === null ? "Going back" : `Going to ${intent.id}`;
       case "panel":
         return `Opening the ${panelNames[intent.panel]}`;
       case "edit":
@@ -567,7 +675,7 @@
       }}
     >
       <input
-        bind:value={jumpTo}
+        bind:value={jumpExpr}
         placeholder="0812-04  ·  812~  ·  @evt_siege_of_marrow+2y"
         spellcheck="false"
         aria-label="Jump to a date"
@@ -577,6 +685,23 @@
 
     {#if summary}
       <div class="chips">
+        <button class="chip find" onclick={() => (goingTo = true)} title="Go to a record (⌘K)">
+          ⌘K go to
+        </button>
+
+        <!-- Only after something has moved the writer, and labelled with where it goes
+             rather than "back": pressing it leaves a mark here, so the second press
+             returns, and a button that said "back" both times would be lying once. -->
+        {#if canGoBack && mark}
+          <button
+            class="chip back"
+            onclick={() => visit(mark!.id, mark!.day)}
+            title="Back to {mark.where ?? 'nothing in particular'} on {mark.when}"
+          >
+            ‹ {backLabel}
+          </button>
+        {/if}
+
         <button
           class="chip"
           class:bad={definiteCount > 0}
@@ -770,12 +895,13 @@
         geometry={editGeometry}
         mode={mapMode}
         holding={held && describe(held)}
+        {anchors}
         onmode={(m) => (mapMode = m)}
         ongeometry={(g) => (editGeometry = g)}
         ondirty={(d) => (editDirty = d)}
         onsaved={afterWrite}
         onclose={closePanel}
-        onjump={goto}
+        onjump={jumpTo}
         onresolve={resolveHeld}
       />
     {:else if panel === "checks"}
@@ -798,7 +924,7 @@
         onclose={closePanel}
       />
     {:else if panel === "export"}
-      <ExportPanel onjump={goto} onclose={closePanel} />
+      <ExportPanel {anchors} onjump={jumpTo} onclose={closePanel} />
     {:else}
       <Inspector
         {snapshot}
@@ -806,7 +932,7 @@
         {selection}
         onselect={inspect}
         onedit={openEditor}
-        onday={goto}
+        onday={jumpTo}
       />
     {/if}
   </div>
@@ -825,6 +951,19 @@
     <div class="placeholder">{busy ? "Opening world…" : "Waiting for a world."}</div>
   {/if}
 </div>
+
+<svelte:window onkeydown={hotkey} />
+
+{#if goingTo && summary}
+  <GoTo
+    records={summary.records}
+    onclose={() => (goingTo = false)}
+    onpick={(id) => {
+      goingTo = false;
+      visit(id);
+    }}
+  />
+{/if}
 
 <style>
   /*
@@ -879,6 +1018,28 @@
     padding: 5px 10px;
     color: var(--ink-3);
     border: 1px solid var(--rule);
+  }
+
+  /* The two navigation chips, in the header's own quiet register: they move the writer
+     rather than reporting on the world, so they must not read as another count. */
+  .chip.find,
+  .chip.back {
+    color: var(--ink-3);
+    border-color: var(--rule);
+    text-transform: none;
+    letter-spacing: 0.04em;
+  }
+
+  .chip.back {
+    max-width: 20ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .chip.find:hover,
+  .chip.back:hover {
+    color: var(--accent);
+    border-color: var(--rule-strong);
   }
 
   /* The only creative actions in a header full of counts, so they read as one. */

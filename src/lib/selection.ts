@@ -84,6 +84,28 @@ export function idOf(selection: Selection): string | null {
   return selection.state === "none" ? null : selection.id;
 }
 
+/**
+ * What to call this in one phrase, or `null` when it has no name to call it by.
+ *
+ * `unknown` and `looking` deliberately return nothing rather than the id: an id is what
+ * the writer would be shown *instead* of a name, and somewhere that matters — the back
+ * mark's label — a bare id would read as a place they had never been.
+ */
+export function nameOf(selection: Selection): string | null {
+  switch (selection.state) {
+    case "present":
+      return selection.entity.name;
+    case "elsewhere":
+      return selection.name;
+    case "event":
+      return selection.event.name;
+    case "scene":
+      return selection.scene.name;
+    default:
+      return null;
+  }
+}
+
 /** What the `edit` button should open, or `null` when there is nothing to edit yet. */
 export function editableKind(selection: Selection): EditableKind | null {
   switch (selection.state) {

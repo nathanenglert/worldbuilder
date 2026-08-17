@@ -53,6 +53,7 @@
     geometry,
     mode,
     holding,
+    anchors,
     onmode,
     ongeometry,
     ondirty,
@@ -71,6 +72,8 @@
      * the intent itself: the form has to *say* what is waiting, not decide about it.
      */
     holding: string | null;
+    /** Event expressions for every date box in here. See `DateField`. */
+    anchors: string[];
     onmode: (mode: "browse" | "marker" | "shape") => void;
     ongeometry: (g: { marker: [number, number] | null; shape: [number, number][] }) => void;
     ondirty: (dirty: boolean) => void;
@@ -97,7 +100,24 @@
   let allowReformat = $state(false);
 
   const types = $derived(summary?.types ?? []);
-  const ids = $derived(summary?.ids ?? []);
+  const records = $derived(summary?.records ?? []);
+  const ids = $derived(records.map((r) => r.id));
+  /**
+   * Ids to names, for the reference lists.
+   *
+   * Those lists offered bare ids until the world summary started carrying names, which
+   * asked a writer to recognise `act_maren_vane` while they were typing a parent. The
+   * name is the thing they know it by.
+   */
+  const names = $derived(Object.fromEntries(records.map((r) => [r.id, r.name])));
+  /**
+   * What this world's facts already call things, most-used first.
+   *
+   * Offered, never required — the stance `types` takes, for the same reason: writing a
+   * new attribute is an ordinary thing to do, and a form that only accepted the existing
+   * ones would be stricter than the data model underneath it.
+   */
+  const attrs = $derived((summary?.attrs ?? []).map((a) => a.name));
   const creating = $derived(target.id === null);
   const primitive = $derived(types.find((t) => t.name === draft?.type)?.primitive ?? null);
 
@@ -478,8 +498,14 @@
     </div>
 
     <div class="two">
-      <DateField bind:value={draft.existence_from} label="exists from" {onjump} onsettled={settle} />
-      <DateField bind:value={draft.existence_to} label="until" {onjump} onsettled={settle} />
+      <DateField
+        bind:value={draft.existence_from}
+        label="exists from"
+        {anchors}
+        {onjump}
+        onsettled={settle}
+      />
+      <DateField bind:value={draft.existence_to} label="until" {anchors} {onjump} onsettled={settle} />
     </div>
     <p class="aside-note">Leave these empty if nobody knows. `?` is a perfectly good answer.</p>
 
@@ -491,6 +517,7 @@
           <RefField
             bind:value={draft.parents[i]}
             {ids}
+            {names}
             listId="entity-parents"
             onsettled={settle}
           />
@@ -505,6 +532,8 @@
       {#each draft.facts as _, i (i)}
         <FactRow
           bind:fact={draft.facts[i]}
+          {attrs}
+          {anchors}
           onremove={() => draft!.facts.splice(i, 1)}
           onsplit={() => split(i)}
           {onjump}
@@ -585,10 +614,10 @@
       <TextInput bind:value={eventDraft.kind} mono onblur={settle} />
     </Field>
 
-    <DateField bind:value={eventDraft.date} label="date" {onjump} onsettled={settle} />
+    <DateField bind:value={eventDraft.date} label="date" {anchors} {onjump} onsettled={settle} />
 
     <Field label="where">
-      <RefField bind:value={eventDraft.location} {ids} listId="event-location" onsettled={settle} />
+      <RefField bind:value={eventDraft.location} {ids} {names} listId="event-location" onsettled={settle} />
     </Field>
 
     <p class="label">Who was there</p>
@@ -598,6 +627,7 @@
           <RefField
             bind:value={eventDraft.participants[i]}
             {ids}
+            {names}
             listId="event-participants"
             onsettled={settle}
           />
@@ -624,14 +654,20 @@
       onedit={() => (sceneDraft!.idPinned = true)}
     />
 
-    <DateField bind:value={sceneDraft.date} label="when it is set" {onjump} onsettled={settle} />
+    <DateField
+      bind:value={sceneDraft.date}
+      label="when it is set"
+      {anchors}
+      {onjump}
+      onsettled={settle}
+    />
 
     <Field label="point of view" hint="whose eyes · optional">
-      <RefField bind:value={sceneDraft.pov} {ids} listId="scene-pov" onsettled={settle} />
+      <RefField bind:value={sceneDraft.pov} {ids} {names} listId="scene-pov" onsettled={settle} />
     </Field>
 
     <Field label="where">
-      <RefField bind:value={sceneDraft.location} {ids} listId="scene-location" onsettled={settle} />
+      <RefField bind:value={sceneDraft.location} {ids} {names} listId="scene-location" onsettled={settle} />
     </Field>
 
     <!-- The link, with what it resolves to underneath — the same move `DateField` makes
@@ -676,6 +712,7 @@
           <RefField
             bind:value={sceneDraft.onPage[i]}
             {ids}
+            {names}
             listId="scene-on-page"
             onsettled={settle}
           />

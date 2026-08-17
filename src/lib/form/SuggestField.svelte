@@ -13,17 +13,20 @@
     options,
     listId,
     placeholder = "",
+    mono = false,
     onsettled,
   }: {
     value?: string;
     options: string[];
     listId: string;
     placeholder?: string;
+    /** For the machine-facing ones — an attribute key, not a name. Matches `TextInput`. */
+    mono?: boolean;
     onsettled?: () => void;
   } = $props();
 </script>
 
-<input type="text" bind:value list={listId} {placeholder} onblur={onsettled} />
+<input type="text" bind:value list={listId} {placeholder} class:mono onblur={onsettled} />
 <datalist id={listId}>
   {#each options as o (o)}
     <option value={o}></option>
@@ -39,6 +42,11 @@
     border: 1px solid var(--rule);
     font-family: var(--f-body);
     font-size: 13px;
+  }
+
+  input.mono {
+    font-family: var(--f-mono);
+    font-size: 11.5px;
   }
 
   input::placeholder {

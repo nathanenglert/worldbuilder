@@ -11,17 +11,33 @@
   import type { DraftFact } from "../draft";
   import DateField from "./DateField.svelte";
   import Field from "./Field.svelte";
-  import TextInput from "./TextInput.svelte";
+  import SuggestField from "./SuggestField.svelte";
   import ValueField from "./ValueField.svelte";
 
   let {
     fact = $bindable(),
+    attrs = [],
+    anchors = [],
     onremove,
     onsplit,
     onjump,
     onsettled,
   }: {
     fact: DraftFact;
+    /**
+     * What this world's facts already call things.
+     *
+     * A world's vocabulary is the thing a fact most needs to agree with — `population`
+     * and `populace` are two attributes to the consistency engine and one idea to the
+     * writer, and a form that never showed the first is how the second gets typed.
+     */
+    attrs?: string[];
+    /**
+     * Event expressions for the two date boxes. A fact's window is the place they matter
+     * most: "held until the siege" is a `to` of `@evt_siege_of_marrow`, and it stays
+     * true when the siege moves.
+     */
+    anchors?: string[];
     onremove: () => void;
     onsplit?: () => void;
     onjump?: (day: number) => void;
@@ -33,7 +49,13 @@
   <div class="head">
     <div class="attr">
       <Field label="attribute">
-        <TextInput bind:value={fact.attr} mono onblur={onsettled} />
+        <SuggestField
+          bind:value={fact.attr}
+          options={attrs}
+          listId="fact-attrs"
+          mono
+          {onsettled}
+        />
       </Field>
     </div>
     <div class="tools">
@@ -58,8 +80,8 @@
   </Field>
 
   <div class="window">
-    <DateField bind:value={fact.from} label="from" {onjump} {onsettled} />
-    <DateField bind:value={fact.to} label="to" {onjump} {onsettled} />
+    <DateField bind:value={fact.from} label="from" {anchors} {onjump} {onsettled} />
+    <DateField bind:value={fact.to} label="to" {anchors} {onjump} {onsettled} />
   </div>
 </div>
 
