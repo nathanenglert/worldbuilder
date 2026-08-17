@@ -204,6 +204,8 @@ export interface FactRecord {
 export interface EntityRecord {
   id: string;
   name: string;
+  /** What the prose calls this, beyond its name. What the manuscript scanner matches on. */
+  aka: string[];
   type: string;
   primitive: string | null;
   existence_from: string | null;
@@ -233,6 +235,12 @@ export interface EventRecord {
 export interface EntityDraft {
   id: string;
   name: string;
+  /**
+   * Both of these are `string[]` and never omitted: the backend reads an absent key as
+   * "this form has no box for it" and keeps what the record already had. Sending `[]`
+   * is how you clear one, so the form has to mean it.
+   */
+  aka: string[];
   type: string;
   existence_from: string | null;
   existence_to: string | null;

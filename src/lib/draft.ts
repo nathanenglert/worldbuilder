@@ -31,9 +31,13 @@ export interface DraftFact {
 export interface Draft {
   id: string;
   name: string;
+  /** Other names the book uses. Held as a list of boxes, blanks and all, until save. */
+  aka: string[];
   type: string;
   existence_from: string;
   existence_to: string;
+  /** Ids this record descends from. The lineage view is drawn from nothing else. */
+  parents: string[];
   facts: DraftFact[];
   marker: [number, number] | null;
   shape: [number, number][];
@@ -95,9 +99,11 @@ export function draftOf(record: EntityRecord): Draft {
   return {
     id: record.id,
     name: record.name,
+    aka: [...record.aka],
     type: record.type,
     existence_from: shown(record.existence_from),
     existence_to: shown(record.existence_to),
+    parents: [...record.parents],
     facts: record.facts.map(factOf),
     marker: record.marker,
     shape: record.shape,
@@ -110,9 +116,13 @@ export function blankDraft(type: string): Draft {
   return {
     id: "",
     name: "",
+    // No blank row for either, unlike facts: most records have neither, and an empty list
+    // with an "add" button reads as "unusual here", which is the truth.
+    aka: [],
     type,
     existence_from: "",
     existence_to: "",
+    parents: [],
     facts: [blankFact()],
     marker: null,
     shape: [],
@@ -169,10 +179,13 @@ export function payloadOf(d: Draft, includeBody: boolean): EntityDraft {
   return {
     id: d.id.trim(),
     name: d.name.trim(),
+    // Always sent, never omitted. Leaving these out is how the form used to delete an
+    // alias list and a bloodline every time it saved.
+    aka: d.aka.map((a) => a.trim()).filter((a) => a !== ""),
     type: d.type.trim(),
     existence_from: sent(d.existence_from),
     existence_to: sent(d.existence_to),
-    parents: [],
+    parents: d.parents.map((p) => p.trim()).filter((p) => p !== ""),
     // A row nobody filled in is not a fact. Dropping it here is what lets the form open
     // with a blank one without that blank becoming an error the writer has to clear.
     facts: d.facts

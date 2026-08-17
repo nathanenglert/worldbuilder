@@ -55,18 +55,23 @@ fn open(root: &Path) -> World {
 
 /// Marrow, as a draft that changes nothing.
 fn marrow_draft(world: &World) -> EntityDraft {
-    let e = &world.entities["place_marrow"];
+    draft_of(world, "place_marrow")
+}
+
+/// Any record, as the draft a form would hold if it rendered every field.
+fn draft_of(world: &World, id: &str) -> EntityDraft {
+    let e = &world.entities[id];
     EntityDraft {
         id: e.id.clone(),
         name: e.name.clone(),
-        aka: e.aliases.clone(),
+        aka: Some(e.aliases.clone()),
         type_name: e.type_name.clone(),
         existence_from: e.existence.as_ref().map(|s| s.from.to_string()),
         existence_to: e.existence.as_ref().and_then(|s| match &s.to {
             wb_core::DateExpr::Unknown => None,
             other => Some(other.to_string()),
         }),
-        parents: e.parents.clone(),
+        parents: Some(e.parents.clone()),
         facts: e
             .facts
             .iter()
@@ -119,6 +124,66 @@ fn a_record_that_goes_out_to_the_editor_and_straight_back_changes_nothing() {
         "the anchor stayed an anchor"
     );
     assert!(marrow.body.contains("wall town"), "the prose is still there");
+}
+
+/// The trap the round-trip above cannot see, because it builds its payload in Rust.
+///
+/// The form sends JSON, and for a long time it sent JSON with no `aka` and no `parents`
+/// in it at all. `#[serde(default)]` turned both absences into empty vectors and the
+/// write went through unconditionally, so editing Aldric's name deleted the two names
+/// the manuscript scanner matches him by and both of his parentage edges — the whole of
+/// what the lineage view draws. Nothing failed; the record simply came back smaller.
+///
+/// So this test deserializes rather than constructs, and the payload below is deliberately
+/// missing both keys.
+#[test]
+fn a_payload_that_never_mentioned_the_aliases_leaves_them_where_they_were() {
+    let root = scratch("absent-aka");
+    let world = open(&root);
+    let before = &world.entities["act_aldric_vane"];
+    assert_eq!(before.aliases, ["Aldric", "the duke"], "the fixture is what we think it is");
+    assert_eq!(before.parents, ["act_maren_vane", "act_isolde_corr"]);
+
+    let draft: EntityDraft = serde_json::from_value(serde_json::json!({
+        "id": "act_aldric_vane",
+        "name": "Aldric Vane the Younger",
+        "type": "noble",
+        "existence_from": "0771-06-12",
+        "existence_to": "0811~",
+        "facts": [],
+        "marker": null,
+        "shape": [],
+        "body": null,
+    }))
+    .expect("the shape the form sends");
+
+    let plan = plan_entity(&world, draft).expect("plans");
+    commit(&plan, plan.revision.as_deref(), true).expect("commits");
+
+    let after = open(&root);
+    let aldric = &after.entities["act_aldric_vane"];
+    assert_eq!(aldric.name, "Aldric Vane the Younger", "the edit that was asked for happened");
+    assert_eq!(aldric.aliases, ["Aldric", "the duke"], "and nothing else did");
+    assert_eq!(aldric.parents, ["act_maren_vane", "act_isolde_corr"]);
+}
+
+/// The other half of the same contract: a form that *did* render the box must be able to
+/// empty it. Otherwise an alias typed by mistake could never be taken back.
+#[test]
+fn a_payload_that_sends_an_empty_alias_list_really_does_clear_it() {
+    let root = scratch("cleared-aka");
+    let world = open(&root);
+
+    let mut draft = draft_of(&world, "act_aldric_vane");
+    draft.aka = Some(Vec::new());
+    draft.parents = Some(vec!["  ".into(), "act_maren_vane".into()]);
+
+    let plan = plan_entity(&world, draft).expect("plans");
+    commit(&plan, plan.revision.as_deref(), true).expect("commits");
+
+    let aldric = &open(&root).entities["act_aldric_vane"];
+    assert!(aldric.aliases.is_empty(), "an emptied box means empty");
+    assert_eq!(aldric.parents, ["act_maren_vane"], "and a blank row is not a reference");
 }
 
 // ---- saving
@@ -252,11 +317,11 @@ fn leaving_the_dates_empty_does_not_invent_an_existence() {
     let draft = EntityDraft {
         id: "place_greyford".into(),
         name: "Greyford".into(),
-        aka: Vec::new(),
+        aka: Some(Vec::new()),
         type_name: "city".into(),
         existence_from: None,
         existence_to: None,
-        parents: Vec::new(),
+        parents: Some(Vec::new()),
         facts: Vec::new(),
         marker: None,
         shape: Vec::new(),

@@ -345,12 +345,6 @@
     if (sceneDraft.id !== suggested) sceneDraft.id = suggested;
   });
 
-  $effect(() => {
-    if (!sceneDraft || !creating || sceneDraft.idPinned) return;
-    const suggested = deriveId(sceneDraft.name, "scene");
-    if (sceneDraft.id !== suggested) sceneDraft.id = suggested;
-  });
-
   /**
    * Close this fact's window and open the next one with the same attribute.
    *
@@ -446,11 +440,8 @@
       bind:value={draft.id}
       locked={!creating}
       taken={ids}
+      onedit={() => (draft!.idPinned = true)}
     />
-    {#if creating}
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="pin" onfocusin={() => (draft!.idPinned = true)}></div>
-    {/if}
 
     <Field label="type" hint="an undeclared type still loads · it is only reported">
       <SuggestField
@@ -461,11 +452,44 @@
       />
     </Field>
 
+    <!-- Both of these lists were on the record and not on the form, which meant a save
+         wrote them away. They are here first because they must be *sent*, and second
+         because they are worth editing: the aliases are what the book is scanned for,
+         and the parents are the whole of what the lineage view draws. -->
+    <p class="label">Also called</p>
+    <p class="aside-note">what the prose calls it · the manuscript is scanned for these</p>
+    <div class="facts">
+      {#each draft.aka as _, i (i)}
+        <div class="participant">
+          <TextInput bind:value={draft.aka[i]} onblur={settle} />
+          <button class="drop" onclick={() => draft!.aka.splice(i, 1)}>remove</button>
+        </div>
+      {/each}
+      <button class="add" onclick={() => draft!.aka.push("")}>+ another name</button>
+    </div>
+
     <div class="two">
       <DateField bind:value={draft.existence_from} label="exists from" {onjump} onsettled={settle} />
       <DateField bind:value={draft.existence_to} label="until" {onjump} onsettled={settle} />
     </div>
     <p class="aside-note">Leave these empty if nobody knows. `?` is a perfectly good answer.</p>
+
+    <p class="label">Descends from</p>
+    <p class="aside-note">parentage · a bloodline is these edges and nothing else</p>
+    <div class="facts">
+      {#each draft.parents as _, i (i)}
+        <div class="participant">
+          <RefField
+            bind:value={draft.parents[i]}
+            {ids}
+            listId="entity-parents"
+            onsettled={settle}
+          />
+          <button class="drop" onclick={() => draft!.parents.splice(i, 1)}>remove</button>
+        </div>
+      {/each}
+      <button class="add" onclick={() => draft!.parents.push("")}>+ parent</button>
+    </div>
 
     <p class="label">Facts here</p>
     <div class="facts">
@@ -541,7 +565,12 @@
       <TextInput bind:value={eventDraft.name} onblur={settle} />
     </Field>
 
-    <IdField bind:value={eventDraft.id} locked={!creating} taken={ids} />
+    <IdField
+      bind:value={eventDraft.id}
+      locked={!creating}
+      taken={ids}
+      onedit={() => (eventDraft!.idPinned = true)}
+    />
 
     <Field label="kind" hint="battle · conquest · oath · anything you like">
       <TextInput bind:value={eventDraft.kind} mono onblur={settle} />
@@ -579,7 +608,12 @@
       <TextInput bind:value={sceneDraft.name} onblur={settle} />
     </Field>
 
-    <IdField bind:value={sceneDraft.id} locked={!creating} taken={ids} />
+    <IdField
+      bind:value={sceneDraft.id}
+      locked={!creating}
+      taken={ids}
+      onedit={() => (sceneDraft!.idPinned = true)}
+    />
 
     <DateField bind:value={sceneDraft.date} label="when it is set" {onjump} onsettled={settle} />
 
@@ -831,13 +865,10 @@
   .note,
   .aside-note {
     margin: 0;
+    padding-left: 11px;
     font-family: var(--f-mono);
     font-size: 10px;
     color: var(--ink-3);
-  }
-
-  .aside-note {
-    padding-left: 11px;
   }
 
   .two {
@@ -1093,7 +1124,4 @@
     color: var(--ink-3);
   }
 
-  .pin {
-    display: none;
-  }
 </style>

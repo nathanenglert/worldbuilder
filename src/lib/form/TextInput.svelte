@@ -13,16 +13,28 @@
     mono = false,
     readonly = false,
     onblur,
+    oninput,
   }: {
     value?: string;
     placeholder?: string;
     mono?: boolean;
     readonly?: boolean;
     onblur?: () => void;
+    /** Typing, specifically — not a programmatic write to `value`, and not a tab through. */
+    oninput?: () => void;
   } = $props();
 </script>
 
-<input type="text" bind:value {placeholder} {readonly} class:mono class:readonly {onblur} />
+<input
+  type="text"
+  bind:value
+  {placeholder}
+  {readonly}
+  class:mono
+  class:readonly
+  {onblur}
+  oninput={() => oninput?.()}
+/>
 
 <style>
   input {

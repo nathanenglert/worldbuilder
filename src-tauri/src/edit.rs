@@ -51,16 +51,24 @@ pub struct EntityDraft {
     pub id: String,
     pub name: String,
     /// What the prose calls this, beyond its name. Empty is the normal state.
+    ///
+    /// `None` — the key absent — leaves the aliases exactly as they are, the same
+    /// contract [`Self::body`] has and for the same reason. A bare `Vec` with
+    /// `#[serde(default)]` cannot tell *cleared* from *never sent*, and answered
+    /// "cleared" for both: a form that omitted the field silently deleted what the
+    /// manuscript scanner matches names against.
     #[serde(default)]
-    pub aka: Vec<String>,
+    pub aka: Option<Vec<String>>,
     #[serde(rename = "type")]
     pub type_name: String,
     #[serde(default)]
     pub existence_from: Option<String>,
     #[serde(default)]
     pub existence_to: Option<String>,
+    /// Parentage edges. `None` keeps them, for the reason above — these are the whole
+    /// of what the lineage view draws.
     #[serde(default)]
-    pub parents: Vec<String>,
+    pub parents: Option<Vec<String>>,
     #[serde(default)]
     pub facts: Vec<FactDraft>,
     #[serde(default)]
@@ -99,6 +107,19 @@ pub(crate) fn date(expr: Option<&str>, field: &str) -> Result<DateExpr, String> 
     }
 }
 
+/// A list the form may or may not have rendered.
+///
+/// `Some` is what the writer sees, blanks dropped — so an emptied list really does clear.
+/// `None` is "this form has no box for it", and keeps what the record already said.
+fn kept(sent: Option<Vec<String>>, existing: Option<&Vec<String>>) -> Vec<String> {
+    match sent {
+        Some(list) => {
+            list.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+        }
+        None => existing.cloned().unwrap_or_default(),
+    }
+}
+
 impl EntityDraft {
     /// `existing` supplies the prose body and the file the record already lives in.
     pub fn into_entity(self, existing: Option<&Entity>) -> Result<Entity, String> {
@@ -128,15 +149,10 @@ impl EntityDraft {
         Ok(Entity {
             id: self.id,
             name: self.name,
-            aliases: self
-                .aka
-                .into_iter()
-                .map(|a| a.trim().to_string())
-                .filter(|a| !a.is_empty())
-                .collect(),
+            aliases: kept(self.aka, existing.map(|e| &e.aliases)),
             type_name: self.type_name,
             existence,
-            parents: self.parents,
+            parents: kept(self.parents, existing.map(|e| &e.parents)),
             facts,
             marker: self.marker,
             shape: self.shape,
