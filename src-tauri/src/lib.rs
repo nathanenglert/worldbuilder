@@ -1,7 +1,10 @@
 pub mod commands;
 pub mod edit;
+pub mod export;
+pub mod kin;
 pub mod story;
 pub mod terrain;
+pub mod version;
 
 pub fn run() {
     #[allow(unused_mut)]
@@ -18,6 +21,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::open_world,
             commands::example_world_path,
+            commands::initial_world,
+            commands::recent_worlds,
             commands::snapshot,
             terrain::terrain,
             terrain::map_image,
@@ -50,6 +55,24 @@ pub fn run() {
             story::scene_record,
             story::preview_scene,
             story::save_scene,
+            // Descent and the batons that pass along it. One payload, because a row and
+            // a band on it are the same two primitives.
+            kin::lineage,
+            // Version control. Everything that moves the writer's files is gated on the
+            // world folder being the repository root; reading is not.
+            version::version_status,
+            version::version_history,
+            version::version_branches,
+            version::version_compare,
+            version::version_commit,
+            version::version_branch,
+            version::version_switch,
+            version::version_merge,
+            version::version_delete,
+            version::version_discard,
+            // Publishing, which has no agent-facing counterpart on purpose.
+            export::preview_export,
+            export::write_export,
         ])
         .run(tauri::generate_context!())
         .expect("failed to start Worldbuilder");

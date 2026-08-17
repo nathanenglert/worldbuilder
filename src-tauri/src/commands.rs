@@ -5,7 +5,7 @@
 //! is, whether the claim is settled — are resolved here rather than reassembled in the
 //! UI, so there is one place that can be wrong about them.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde::Serialize;
@@ -477,9 +477,22 @@ pub fn decide_proposal(
 }
 
 #[tauri::command]
-pub fn open_world(path: String, state: State<'_, AppState>) -> Result<WorldSummary, String> {
-    let world = load(PathBuf::from(&path)).map_err(|e| e.to_string())?;
-    state.open(world)
+pub fn open_world(
+    path: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<WorldSummary, String> {
+    let root = PathBuf::from(path.trim());
+    // Checked before the load, so a mistyped path says what is actually wrong instead of
+    // surfacing whatever the loader tripped over three folders down.
+    if !root.join("world.yaml").is_file() {
+        return Err(format!("there is no `world.yaml` in {}", root.display()));
+    }
+
+    let world = load(&root).map_err(|e| e.to_string())?;
+    let summary = state.open(world)?;
+    remember(&app, &root);
+    Ok(summary)
 }
 
 /// Where the bundled example world lives, so a first run has something to open.
@@ -490,6 +503,61 @@ pub fn example_world_path() -> Option<String> {
         .canonicalize()
         .ok()
         .map(|p| p.display().to_string())
+}
+
+/// What to open on launch: the last world that is still there, else the example.
+///
+/// A tool whose files are the writer's own should reopen the writer's own files. Until
+/// this slice the app could only ever open the world it shipped with, which made every
+/// other feature in it a demo.
+#[tauri::command]
+pub fn initial_world(app: tauri::AppHandle) -> Option<String> {
+    recent_worlds(app).into_iter().next().or_else(example_world_path)
+}
+
+/// The last few world folders opened, newest first, skipping any that have moved.
+///
+/// Paths and nothing else. A recent list that cached names or counts would be a second
+/// copy of the world's own truth, going stale in a config directory.
+#[tauri::command]
+pub fn recent_worlds(app: tauri::AppHandle) -> Vec<String> {
+    let Some(file) = recent_file(&app) else { return Vec::new() };
+    let Ok(text) = std::fs::read_to_string(file) else { return Vec::new() };
+    serde_json::from_str::<Vec<String>>(&text)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|p| Path::new(p).join("world.yaml").is_file())
+        .take(RECENT)
+        .collect()
+}
+
+const RECENT: usize = 8;
+
+fn recent_file(app: &tauri::AppHandle) -> Option<PathBuf> {
+    use tauri::Manager;
+    let dir = app.path().app_config_dir().ok()?;
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join("recent.json"))
+}
+
+/// Failing to remember a world is never worth failing an open over — the world is loaded
+/// and the writer is looking at it.
+fn remember(app: &tauri::AppHandle, root: &Path) {
+    let Some(file) = recent_file(app) else { return };
+    let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let canonical = canonical.display().to_string();
+
+    let mut list: Vec<String> = std::fs::read_to_string(&file)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    list.retain(|p| *p != canonical);
+    list.insert(0, canonical);
+    list.truncate(RECENT);
+
+    if let Ok(text) = serde_json::to_string_pretty(&list) {
+        let _ = std::fs::write(file, text);
+    }
 }
 
 #[tauri::command]

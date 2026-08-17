@@ -108,7 +108,7 @@ fn the_summary_spans_past_every_change_point() {
     let world = vashen();
     let summary = WorldSummary::of(&world);
 
-    assert_eq!(summary.entity_count, 11);
+    assert_eq!(summary.entity_count, 12);
     assert_eq!(summary.event_count, 3);
     assert_eq!(summary.months.len(), 12);
     assert!(summary.undeclared_types.is_empty());
