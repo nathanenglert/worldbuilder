@@ -15,6 +15,7 @@ use wb_store::{World, load};
 use worldbuilder_lib::edit::{
     EntityDraft, EventDraft, FactDraft, commit, plan_delete, plan_entity, plan_event,
 };
+use worldbuilder_lib::story::{SceneDraft, SceneRecordDto, plan_scene};
 
 fn example_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../examples/vashen")
@@ -33,10 +34,18 @@ fn copy_dir(from: &Path, to: &Path) {
     }
 }
 
+/// A throwaway world, with the manuscript beside it where `../manuscript` expects.
+///
+/// The nesting matters: the example world's `manuscript.root` climbs out of its own
+/// folder, which is the point of declaring it. A scratch copy that dropped the sibling
+/// would test a world whose book had gone missing, and quietly stop exercising anything
+/// the story layer does.
 fn scratch(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("wb-authoring-{}-{tag}", std::process::id()));
-    let _ = fs::remove_dir_all(&dir);
+    let parent = std::env::temp_dir().join(format!("wb-authoring-{}-{tag}", std::process::id()));
+    let _ = fs::remove_dir_all(&parent);
+    let dir = parent.join("vashen");
     copy_dir(&example_root(), &dir);
+    copy_dir(&example_root().join("../manuscript"), &parent.join("manuscript"));
     dir
 }
 
@@ -331,4 +340,148 @@ fn deleting_a_record_nothing_depends_on_removes_its_file() {
 
     assert!(!path.exists(), "the file should be gone");
     assert!(!open(&root).entities.contains_key("thing_high_tongue"));
+}
+
+// ------------------------------------------------------------ scenes
+
+fn breach_draft(world: &World) -> SceneDraft {
+    let s = &world.scenes["scn_the_breach"];
+    SceneDraft {
+        id: s.id.clone(),
+        name: s.name.clone(),
+        date: s.date.to_string(),
+        pov: s.pov.clone(),
+        on_page: s.on_page.clone(),
+        location: s.location.clone(),
+        prose: s.prose.clone(),
+    }
+}
+
+/// The scene equivalent of the slice-4.5 guarantee: a record that goes out to the editor
+/// and comes straight back changes nothing at all, including the comment above it.
+#[test]
+fn a_scene_that_goes_out_to_the_editor_and_straight_back_changes_nothing() {
+    let root = scratch("scene-roundtrip");
+    let world = open(&root);
+    let path = root.join("scenes/the-breach.yaml");
+    let before = fs::read_to_string(&path).unwrap();
+
+    let plan = plan_scene(&world, breach_draft(&world)).expect("plans");
+    assert!(plan.preserves_bytes());
+    commit(&plan, plan.revision.as_deref(), false).expect("commits");
+
+    assert_eq!(fs::read_to_string(&path).unwrap(), before, "byte for byte");
+    assert!(before.contains("# Anchored to the siege"), "and the comment was there to keep");
+}
+
+/// The anchor survives as an anchor. Resolving `@evt_siege_of_marrow` into a year on the
+/// way through the form would silently unhook chapter twelve from the siege it depicts.
+#[test]
+fn a_scene_anchored_to_an_event_stays_anchored_through_an_edit() {
+    let root = scratch("scene-anchor");
+    let world = open(&root);
+
+    let record = SceneRecordDto::of(&world, &world.scenes["scn_the_breach"]);
+    assert_eq!(record.date, "@evt_siege_of_marrow", "it arrives as authored");
+
+    let mut draft = breach_draft(&world);
+    draft.name = "The wall opens".into();
+    let plan = plan_scene(&world, draft).expect("plans");
+    commit(&plan, plan.revision.as_deref(), false).expect("commits");
+
+    let after = open(&root);
+    assert_eq!(after.scenes["scn_the_breach"].date.to_string(), "@evt_siege_of_marrow");
+    assert_eq!(after.scenes["scn_the_breach"].name, "The wall opens");
+}
+
+/// Clearing the prose link leaves a scene that is still a scene. A book gets rearranged;
+/// a chapter that has not been written yet is a normal state, not a broken record.
+#[test]
+fn a_scene_with_its_link_cleared_is_still_a_valid_scene() {
+    let root = scratch("scene-unlinked");
+    let world = open(&root);
+
+    let mut draft = breach_draft(&world);
+    draft.prose = Some("   ".into()); // an emptied box, not a link to nowhere
+    let plan = plan_scene(&world, draft).expect("plans");
+    commit(&plan, plan.revision.as_deref(), false).expect("commits");
+
+    let after = open(&root);
+    assert_eq!(after.scenes["scn_the_breach"].prose, None);
+    assert!(!fs::read_to_string(root.join("scenes/the-breach.yaml")).unwrap().contains("prose:"));
+
+    let story = wb_story::Story::read(&after);
+    let (read, missing) = story.counts();
+    assert_eq!((read, missing), (2, 1), "and it reports itself as unread rather than erroring");
+}
+
+/// A brand-new scene is written the way the hand-written ones are, in the folder they
+/// live in — not as serde's block-style output in whatever directory came to hand.
+#[test]
+fn a_new_scene_is_written_the_way_the_existing_ones_are() {
+    let root = scratch("scene-new");
+    let world = open(&root);
+
+    let draft = SceneDraft {
+        id: "scn_the_letter".into(),
+        name: "The letter".into(),
+        date: "0798-05".into(),
+        pov: Some("act_maren_vane".into()),
+        on_page: vec!["place_corrath_city".into()],
+        location: Some("place_corrath_city".into()),
+        prose: Some("ch01-the-wall.md#word-from-the-vale".into()),
+    };
+
+    let plan = plan_scene(&world, draft).expect("plans");
+    commit(&plan, None, false).expect("commits");
+
+    let text = fs::read_to_string(root.join("scenes/the-letter.yaml")).expect("lands in scenes/");
+    assert_eq!(
+        text,
+        "id: scn_the_letter\n\
+         name: The letter\n\
+         date: \"0798-05\"\n\
+         pov: act_maren_vane\n\
+         on_page: [place_corrath_city]\n\
+         location: place_corrath_city\n\
+         prose: ch01-the-wall.md#word-from-the-vale\n",
+        "inline lists and a quoted date, like every scene a human wrote"
+    );
+
+    assert_eq!(open(&root).scenes.len(), 4);
+}
+
+/// The date is what makes a scene checkable, so an unparseable one is refused by name
+/// rather than stored as something that will fail to resolve later.
+#[test]
+fn a_scene_with_a_date_nobody_can_parse_is_refused_before_anything_is_written() {
+    let root = scratch("scene-bad-date");
+    let world = open(&root);
+
+    let mut draft = breach_draft(&world);
+    draft.date = "0812~~".into();
+    let err = plan_scene(&world, draft).expect_err("refused");
+    assert!(err.contains("`date`"), "got: {err}");
+}
+
+/// Moving a scene's date changes what the prose contradicts, and the impact pass says so
+/// before the save. This is the whole reason a scene carries a date at all.
+#[test]
+fn moving_a_scene_off_the_siege_settles_the_contradiction_its_prose_carried() {
+    let root = scratch("scene-impact");
+    let world = open(&root);
+
+    let mut draft = breach_draft(&world);
+    // 0800, not 0810: his death is `0811~`, and the world's year-level fuzz is 730 days,
+    // so 0810 is still inside the *doubt* and the finding would rightly survive the move.
+    draft.date = "0800".into();
+
+    let plan = plan_scene(&world, draft).expect("plans");
+    let resolved: Vec<&str> = plan.impact.resolved.iter().map(|f| f.rule.slug()).collect();
+
+    assert!(
+        resolved.contains(&"scene-contradiction"),
+        "the preview must show what the move settles, got {resolved:?}"
+    );
+    assert!(!plan.impact.breaks_something(), "and it breaks nothing");
 }

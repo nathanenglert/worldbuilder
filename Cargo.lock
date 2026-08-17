@@ -4256,6 +4256,7 @@ dependencies = [
  "wb-check",
  "wb-core",
  "wb-store",
+ "wb-story",
 ]
 
 [[package]]

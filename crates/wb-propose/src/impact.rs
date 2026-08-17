@@ -54,8 +54,11 @@ pub fn impact(world: &World, proposal: &Proposal) -> Result<Impact> {
 /// settle, what does it break" is the same question and deserves the same answer — so
 /// the arithmetic lives here rather than being reimplemented against a fake proposal.
 pub fn impact_between(world: &World, edited: &World) -> Impact {
-    let before = wb_check::check(world);
-    let after = wb_check::check(edited);
+    // The merged report, so "what does this settle" includes contradictions found in the
+    // prose. Re-dating an event moves every scene anchored to it; checking only the
+    // records would tell a reviewer a change breaks nothing while it breaks a chapter.
+    let before = wb_story::check(world);
+    let after = wb_story::check(edited);
 
     let before_keys: Vec<String> = before.findings.iter().map(identity).collect();
     let after_keys: Vec<String> = after.findings.iter().map(identity).collect();

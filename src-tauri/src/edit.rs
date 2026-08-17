@@ -90,7 +90,7 @@ pub struct EventDraft {
 ///
 /// Absent or empty means `?` — genuinely unplaced, which is a legitimate answer and the
 /// common one early in a world's life.
-fn date(expr: Option<&str>, field: &str) -> Result<DateExpr, String> {
+pub(crate) fn date(expr: Option<&str>, field: &str) -> Result<DateExpr, String> {
     match expr.map(str::trim) {
         None | Some("") => Ok(DateExpr::Unknown),
         Some(raw) => {
@@ -337,7 +337,7 @@ pub fn commit(plan: &EditPlan, expected: Option<&str>, allow_reformat: bool) -> 
     Ok(())
 }
 
-fn read_if_present(path: &std::path::Path) -> Option<String> {
+pub(crate) fn read_if_present(path: &std::path::Path) -> Option<String> {
     std::fs::read_to_string(path).ok()
 }
 
@@ -512,7 +512,7 @@ pub struct SaveResultDto {
     pub revision: Option<String>,
 }
 
-fn preview_of(world: &World, plan: &EditPlan) -> EditPreviewDto {
+pub(crate) fn preview_of(world: &World, plan: &EditPlan) -> EditPreviewDto {
     EditPreviewDto {
         files: plan
             .files
@@ -676,13 +676,13 @@ pub fn delete_record(
     })
 }
 
-fn written_paths(world: &World, plan: &EditPlan) -> Vec<(String, PathBuf)> {
+pub(crate) fn written_paths(world: &World, plan: &EditPlan) -> Vec<(String, PathBuf)> {
     plan.files.iter().map(|f| (relative(world, &f.path), f.path.clone())).collect()
 }
 
 /// Hand back the revision of what was actually written, so a panel left open can carry
 /// on editing without refetching the whole record.
-fn saved(summary: WorldSummary, written: Vec<(String, PathBuf)>) -> SaveResultDto {
+pub(crate) fn saved(summary: WorldSummary, written: Vec<(String, PathBuf)>) -> SaveResultDto {
     let revision = written
         .first()
         .and_then(|(_, path)| read_if_present(path))

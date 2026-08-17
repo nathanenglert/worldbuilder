@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod edit;
+pub mod story;
 pub mod terrain;
 
 pub fn run() {
@@ -39,6 +40,16 @@ pub fn run() {
             edit::save_geometry,
             edit::delete_record,
             terrain::terrain_places,
+            // The story. Scene editing reuses `edit.rs`'s plan-preview-commit machinery
+            // wholesale rather than growing a second idea of what a safe save looks like.
+            story::scenes,
+            story::story,
+            story::passage,
+            story::resolve_prose,
+            story::chapters,
+            story::scene_record,
+            story::preview_scene,
+            story::save_scene,
         ])
         .run(tauri::generate_context!())
         .expect("failed to start Worldbuilder");

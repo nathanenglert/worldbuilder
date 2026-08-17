@@ -69,10 +69,13 @@ fn a_good_proposal_resolves_the_open_question_and_breaks_nothing() {
     let world = vashen();
     let effect = impact(&world, &by_id("prp_resolve_aldric")).unwrap();
 
-    assert_eq!(effect.before, (0, 1), "the world starts with one open question");
+    // One open question, surfacing twice: the event record lists Aldric at a siege he
+    // may not have lived to see, and chapter twelve names him on the page there. Giving
+    // him another year settles both, which is the impact analysis reaching the prose.
+    assert_eq!(effect.before, (0, 2), "the world starts with one question, seen two ways");
     assert_eq!(effect.after, (0, 0), "and the proposal settles it");
-    assert_eq!(effect.resolved.len(), 1);
-    assert!(effect.resolved[0].message.contains("Aldric Vane"));
+    assert_eq!(effect.resolved.len(), 2);
+    assert!(effect.resolved.iter().all(|f| f.message.contains("Aldric Vane")));
     assert!(effect.introduced.is_empty(), "{:#?}", effect.introduced);
     assert!(!effect.breaks_something());
 }

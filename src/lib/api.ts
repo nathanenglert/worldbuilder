@@ -40,6 +40,9 @@ export interface WorldSummary {
   months: string[];
   entity_count: number;
   event_count: number;
+  scene_count: number;
+  /** What the story panel can honestly claim before it claims anything. */
+  manuscript: "unlinked" | "root_missing" | "linked";
   span: [number, number];
   change_points: number[];
   undeclared_types: string[];
@@ -276,6 +279,96 @@ export interface SaveResult {
   revision: string | null;
 }
 
+// ---------------------------------------------------------------- the story
+
+/** What the app can honestly claim about the manuscript. */
+export type Standing = "unlinked" | "root_missing" | "linked";
+
+/** Where a record sits in the iceberg. `underbuilt` is the one to read first. */
+export type Standing4 = "underbuilt" | "load-bearing" | "overbuilt" | "quiet";
+
+/**
+ * A scene, for the timeline band and the map's story path.
+ *
+ * `order` is reading order and `nominal` is when it happens, and they are allowed to
+ * disagree — that disagreement is a flashback. Never sort one by the other.
+ */
+export interface StoryScene {
+  id: string;
+  name: string;
+  nominal: number | null;
+  earliest: number | null;
+  latest: number | null;
+  label: string;
+  pov: string | null;
+  on_page: string[];
+  location: string | null;
+  prose: string | null;
+  order: number;
+  /** From the location's record marker, so it survives dates the location does not. */
+  point: [number, number] | null;
+  unreadable: string | null;
+  words: number | null;
+  names: string[];
+}
+
+export interface Surfacing {
+  id: string;
+  name: string;
+  standing: Standing4;
+  mentions: number;
+  scenes: string[];
+  referenced_by: number;
+  appears_in: number;
+  cast_in: number;
+  facts: number;
+  prose_bytes: number;
+  first_seen: string | null;
+}
+
+export interface Story {
+  standing: Standing;
+  scenes_read: number;
+  surfaced: number;
+  total: number;
+  /** Rounded percentage, or null for an empty world — 0% of nothing says nothing. */
+  percent: number | null;
+  records: Surfacing[];
+  unreadable: { scene: string; reason: string }[];
+  root: string | null;
+}
+
+export interface Passage {
+  scene: string;
+  file: string;
+  heading: string | null;
+  text: string;
+  words: number;
+  truncated: boolean;
+}
+
+export interface SceneRecord {
+  id: string;
+  name: string;
+  date: string;
+  pov: string | null;
+  on_page: string[];
+  location: string | null;
+  prose: string | null;
+  path: string;
+  revision: string | null;
+}
+
+export interface SceneDraft {
+  id: string;
+  name: string;
+  date: string;
+  pov: string | null;
+  on_page: string[];
+  location: string | null;
+  prose: string | null;
+}
+
 /** False when the page is open in a plain browser rather than the desktop shell. */
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -312,4 +405,14 @@ export const api = {
   deleteRecord: (id: string, revision: string | null) =>
     invoke<SaveResult>("delete_record", { id, revision }),
   terrainPlaces: () => invoke<Record<string, Place>>("terrain_places"),
+
+  scenes: () => invoke<StoryScene[]>("scenes"),
+  story: () => invoke<Story>("story"),
+  passage: (scene: string) => invoke<Passage>("passage", { scene }),
+  resolveProse: (link: string) => invoke<Passage>("resolve_prose", { link }),
+  chapters: () => invoke<string[]>("chapters"),
+  sceneRecord: (id: string) => invoke<SceneRecord>("scene_record", { id }),
+  previewScene: (draft: SceneDraft) => invoke<EditPreview>("preview_scene", { draft }),
+  saveScene: (draft: SceneDraft, revision: string | null, allowReformat = false) =>
+    invoke<SaveResult>("save_scene", { draft, revision, allowReformat }),
 };

@@ -108,6 +108,9 @@ pub struct WorldSummary {
     pub months: Vec<String>,
     pub entity_count: usize,
     pub event_count: usize,
+    pub scene_count: usize,
+    /// `unlinked` · `root_missing` · `linked`. What the story panel can honestly claim.
+    pub manuscript: &'static str,
     /// Inclusive day range worth scrubbing, padded so the outermost events do not sit
     /// pinned against the ends of the track.
     pub span: [i64; 2],
@@ -148,6 +151,12 @@ impl WorldSummary {
             months: world.calendar.months.iter().map(|m| m.name.clone()).collect(),
             entity_count: world.entities.len(),
             event_count: world.events.len(),
+            scene_count: world.scenes.len(),
+            manuscript: match &world.manuscript {
+                None => "unlinked",
+                Some(m) if world.root.join(&m.root).is_dir() => "linked",
+                Some(_) => "root_missing",
+            },
             span: [lo - pad, hi + pad],
             change_points,
             undeclared_types: world.undeclared_types().keys().cloned().collect(),
@@ -156,7 +165,13 @@ impl WorldSummary {
                 .values()
                 .map(|t| TypeDto { name: t.name.clone(), primitive: primitive_name(t.primitive) })
                 .collect(),
-            ids: world.entities.keys().chain(world.events.keys()).cloned().collect(),
+            ids: world
+                .entities
+                .keys()
+                .chain(world.events.keys())
+                .chain(world.scenes.keys())
+                .cloned()
+                .collect(),
         }
     }
 }
@@ -299,7 +314,10 @@ impl FindingDto {
 
 #[tauri::command]
 pub fn check_world(state: State<'_, AppState>) -> Result<Vec<FindingDto>, String> {
-    state.read(|world| wb_check::check(world).findings.iter().map(FindingDto::of).collect())
+    // `wb_story::check`, so the header count includes contradictions found in the prose.
+    // The alternative is a Findings panel that says a world is clean while the story
+    // panel shows a chapter naming somebody who was dead at the time.
+    state.read(|world| wb_story::check(world).findings.iter().map(FindingDto::of).collect())
 }
 
 /// A pending change, with what accepting it would do to the world's consistency.
