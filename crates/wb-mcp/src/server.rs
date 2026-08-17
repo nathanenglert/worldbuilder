@@ -29,6 +29,7 @@ use crate::dto::{
 use crate::handle::WorldHandle;
 use crate::notes;
 use crate::overview::WorldOverview;
+use crate::story;
 use crate::terrain::{PlaceOut, SiteOut};
 
 /// Enough to answer any single question without flooding a context window. Every tool
@@ -186,6 +187,12 @@ pub struct DateArgs {
 pub struct NoteArgs {
     /// Path relative to the world folder, as returned by `list_notes`.
     pub path: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SceneArgs {
+    /// A scene id, as returned by `list_scenes` — e.g. `scn_the_breach`.
+    pub scene: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -852,7 +859,10 @@ impl WorldServer {
         Parameters(args): Parameters<CheckArgs>,
     ) -> Result<Json<CheckOut>, String> {
         self.read(|world| {
-            let report = wb_check::check(world);
+            // `wb_story::check` rather than `wb_check::check`: a contradiction found on
+            // the page is a contradiction, and an agent asking this question should not
+            // have to know that some of them live behind a different call.
+            let report = wb_story::check(world);
             let findings: Vec<FindingDto> = report
                 .findings
                 .iter()
@@ -932,6 +942,47 @@ impl WorldServer {
         Parameters(args): Parameters<NoteArgs>,
     ) -> Result<Json<notes::NoteBody>, String> {
         Ok(Json(notes::read(self.root(), &args.path)?))
+    }
+
+    /// Every scene in the book, in reading order, with what its prose names.
+    ///
+    /// A scene is where the telling touches the world: a date, usually a point-of-view
+    /// character and a place, and a link to prose the writer owns and this tool only
+    /// reads. Reading order is derived from the manuscript, so it can legitimately
+    /// disagree with the dates — that disagreement is a flashback, not a mistake.
+    #[tool(annotations(title = "List scenes", read_only_hint = true))]
+    async fn list_scenes(&self) -> Result<Json<ListOut<story::SceneOut>>, String> {
+        self.read(|world| {
+            let items = story::list(world, &wb_story::Story::read(world));
+            let matched = items.len();
+            Ok(ListOut::new(items, matched, matched))
+        })
+        .map(Json)
+    }
+
+    /// The prose of one scene, by the id `list_scenes` gave.
+    ///
+    /// Returns the linked passage — the section under its heading, not the whole
+    /// chapter — plus every record the passage names, so canon can be lined up against
+    /// it without guessing which names in the prose are records.
+    #[tool(annotations(title = "Read scene", read_only_hint = true))]
+    async fn read_scene(
+        &self,
+        Parameters(args): Parameters<SceneArgs>,
+    ) -> Result<Json<story::PassageOut>, String> {
+        self.read(|world| story::read(world, &wb_story::Story::read(world), &args.scene)).map(Json)
+    }
+
+    /// What of this world reaches the page, and what the story leans on that is not
+    /// there.
+    ///
+    /// Records come back underbuilt first, because that is the useful end: a place named
+    /// in three scenes with no facts and no prose is the single most actionable thing
+    /// here. Nothing in this report is waste — the submerged part of a world is what
+    /// makes the visible part feel solid, and an unused culture is the iceberg working.
+    #[tool(annotations(title = "Iceberg", read_only_hint = true))]
+    async fn iceberg(&self) -> Result<Json<story::IcebergOut>, String> {
+        self.read(|world| Ok(story::report(world, &wb_story::Story::read(world)))).map(Json)
     }
 
     /// Dry-run a set of changes: what they would settle, what they would break, and

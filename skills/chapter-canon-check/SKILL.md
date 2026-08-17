@@ -9,15 +9,34 @@ The manuscript is not in the tool and never will be. Writers are attached to Scr
 Obsidian, and Word, and will not move. So this reads prose from wherever it lives and
 checks it against the world at the date it happens.
 
+## If the scene is linked, start there
+
+`list_scenes` shows the book in reading order. `read_scene` returns one scene's prose
+along with **every record the passage names**, which saves you guessing which proper
+nouns are canon and which are furniture.
+
+A linked scene has already been checked for the most common slip — `check_consistency`
+carries `scene-contradiction` findings, meaning the prose names somebody whose lifespan
+does not cover the scene's date. Read those first; they are the answer to the question
+that was asked, computed rather than inferred.
+
+Then do the work below anyway. The automatic check knows about existence and nothing
+else: it cannot see a title used a decade early or a city under the wrong flag.
+
 ## Establish the date first
 
-Nothing else works until you know when the scene is set. In order of preference:
+For an unlinked chapter — pasted in, or not yet a scene record — nothing works until you
+know when it is set. In order of preference:
 
 1. The scene states it.
 2. It sits between two events you can name — then it is `>@evt_a` and `<@evt_b`, and
    you check against both ends.
 3. Ask. Do not guess a year in order to have something to check against; every finding
    downstream would inherit the guess.
+
+If the writer wants the answer to stick, offer a scene record: a date, a `pov`, a
+`location`, and a `prose:` link. That is what makes the check repeatable instead of a
+thing you did once in a conversation.
 
 `resolve_date` turns whatever you settle on into a day.
 

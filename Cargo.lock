@@ -4242,6 +4242,7 @@ dependencies = [
  "wb-core",
  "wb-propose",
  "wb-store",
+ "wb-story",
  "wb-terrain",
 ]
 

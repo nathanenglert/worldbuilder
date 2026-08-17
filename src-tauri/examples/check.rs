@@ -10,7 +10,7 @@
 
 use std::path::PathBuf;
 
-use wb_check::{Certainty, check};
+use wb_check::Certainty;
 use wb_store::load;
 
 fn main() {
@@ -27,7 +27,10 @@ fn main() {
         }
     };
 
-    let report = check(&world);
+    // `wb_story::check` rather than `wb_check::check`: a contradiction found in the
+    // prose is a contradiction, and a build that passes because nobody read the book is
+    // not a build that passed.
+    let report = wb_story::check(&world);
     let (definite, possible) = report.counts();
 
     println!("{} — {definite} definite, {possible} possible\n", world.name);

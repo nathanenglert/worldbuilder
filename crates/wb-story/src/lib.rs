@@ -31,6 +31,23 @@ use wb_store::World;
 pub use manuscript::Passage;
 pub use mentions::{Mention, Via};
 
+/// Every consistency finding a world has — from its records *and* from its prose.
+///
+/// One function so the two callers cannot drift. A contradiction the writer can see in
+/// the app and one an agent gets from `check_consistency` have to be the same set, or
+/// the two surfaces start disagreeing about whether a world is clean.
+pub fn check(world: &World) -> wb_check::Report {
+    check_with(world, &Story::read(world))
+}
+
+/// The same, for a caller that has already read the manuscript. `Story::read` opens
+/// files; doing it twice per request is the easy waste to leave lying around.
+pub fn check_with(world: &World, story: &Story) -> wb_check::Report {
+    let mut report = wb_check::check(world);
+    report.findings.extend(canon::check(world, story));
+    report
+}
+
 /// One scene, with whatever its link could be made to yield.
 #[derive(Debug, Clone)]
 pub struct Read {

@@ -125,6 +125,9 @@ async fn every_tool_is_advertised_with_a_description_and_a_schema() {
         "resolve_date",
         "list_notes",
         "read_note",
+        "list_scenes",
+        "read_scene",
+        "iceberg",
         "check_changes",
         "propose_changes",
         "list_proposals",
@@ -433,7 +436,16 @@ async fn the_check_separates_the_open_question_from_an_actual_contradiction() {
     let out = agent.call("check_consistency", json!({})).await;
 
     assert_eq!(out["definite"], 0, "{:#?}", out["findings"]);
-    assert_eq!(out["possible"], 1);
+
+    // The world's one deliberate uncertainty — was Aldric alive at the siege? — now
+    // surfaces from two different places, and both are worth having. The event record
+    // lists him as a participant; chapter twelve names him on the page. Remove him from
+    // the participants and the prose finding still stands, which is the point.
+    assert_eq!(out["possible"], 2, "{:#?}", out["findings"]);
+    let rules: Vec<&str> =
+        out["findings"].as_array().unwrap().iter().map(|f| f["rule"].as_str().unwrap()).collect();
+    assert!(rules.contains(&"existence-violation"));
+    assert!(rules.contains(&"scene-contradiction"));
 
     let finding = &out["findings"][0];
     assert_eq!(finding["certainty"], "possible");
@@ -949,4 +961,114 @@ async fn a_question_mark_clears_an_existence_end() {
     // Clearing a birth date is legal and loses the parentage check its precision fed,
     // so the call must succeed rather than error.
     assert!(out.get("error").is_none(), "clearing an end should be expressible: {out:#?}");
+}
+
+// ------------------------------------------------------------ the manuscript
+
+/// The book comes back in reading order, which is the manuscript's order and not the
+/// calendar's. Chapter one holds a flashback, so the two genuinely disagree — and an
+/// agent that sorted these by date would narrate the book wrong.
+#[tokio::test]
+async fn scenes_come_back_in_the_order_they_are_read() {
+    let agent = Agent::example().await;
+    let out = agent.call("list_scenes", json!({})).await;
+
+    let items = out["items"].as_array().expect("items");
+    assert_eq!(items.len(), 3);
+
+    let ids: Vec<&str> = items.iter().map(|s| s["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["scn_gate_at_dusk", "scn_word_from_the_vale", "scn_the_breach"]);
+    assert_eq!(items[0]["reading_order"], json!(1), "counted from one, for a person");
+
+    let second = items[1]["nominal"].as_i64().unwrap();
+    let first = items[0]["nominal"].as_i64().unwrap();
+    assert!(second < first, "the second scene read is set eight years before the first");
+
+    assert_eq!(items[2]["prose"], json!("ch12-the-siege.md#the-breach"));
+    assert!(items[2]["names_records"].as_u64().unwrap() > 0);
+}
+
+/// A passage arrives with the records it names already resolved, so an agent never has
+/// to guess which proper nouns in the prose are canon and which are furniture.
+#[tokio::test]
+async fn a_scene_arrives_with_the_records_its_prose_names() {
+    let agent = Agent::example().await;
+    let out = agent.call("read_scene", json!({ "scene": "scn_the_breach" })).await;
+
+    assert_eq!(out["file"], json!("ch12-the-siege.md"));
+    assert_eq!(out["heading"], json!("The breach"));
+    assert!(out["text"].as_str().unwrap().contains("the wall of Marrow opened"));
+    assert!(
+        !out["text"].as_str().unwrap().contains("Twelve — The Siege"),
+        "the anchor narrows to its own section rather than the whole chapter"
+    );
+
+    let names = out["names"].as_array().expect("names");
+    let ids: Vec<&str> = names.iter().map(|n| n["id"].as_str().unwrap()).collect();
+    assert!(ids.contains(&"place_marrow"));
+    assert!(ids.contains(&"act_aldric_vane"));
+
+    for name in names {
+        assert!(
+            !name["first_seen"].as_str().unwrap_or_default().is_empty(),
+            "every count carries the sentence behind it: {name:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_scene_that_does_not_exist_says_how_to_find_the_ones_that_do() {
+    let agent = Agent::example().await;
+    let message = agent.refuse("read_scene", json!({ "scene": "scn_nowhere" })).await;
+    assert!(message.contains("list_scenes"), "got: {message}");
+}
+
+/// The iceberg's headline number, sorted the way the methodology says to read it.
+#[tokio::test]
+async fn the_iceberg_reports_what_reaches_the_page_and_says_what_it_measured() {
+    let agent = Agent::example().await;
+    let out = agent.call("iceberg", json!({})).await;
+
+    assert_eq!(out["standing"], json!("linked"));
+    assert_eq!(out["total"], json!(11));
+    assert_eq!(out["surfaced"], json!(8));
+    assert_eq!(out["surfaced_percent"], json!(73));
+
+    let records = out["records"].as_array().expect("records");
+    assert_eq!(records.len(), 11);
+
+    // The caveat travels on the payload, not only in a skill, because the number is what
+    // gets quoted and the number is the part that can mislead.
+    let note = out["note"].as_str().unwrap();
+    assert!(note.contains("aka"), "the note must explain the commonest cause of a low ratio");
+
+    // Underbuilt first — the order *is* the report's opinion about where the hour goes.
+    let standings: Vec<&str> = records.iter().map(|r| r["standing"].as_str().unwrap()).collect();
+    let rank = |s: &str| match s {
+        "underbuilt" => 0,
+        "load-bearing" => 1,
+        "overbuilt" => 2,
+        _ => 3,
+    };
+    assert!(
+        standings.windows(2).all(|w| rank(w[0]) <= rank(w[1])),
+        "records are not sorted underbuilt-first: {standings:?}"
+    );
+}
+
+/// The rule DESIGN.md §5 deferred, reaching an agent through the tool it already uses.
+#[tokio::test]
+async fn a_contradiction_found_in_the_prose_reads_like_any_other_finding() {
+    let agent = Agent::example().await;
+    let out = agent.call("check_consistency", json!({ "rule": "scene-contradiction" })).await;
+
+    let findings = out["findings"].as_array().expect("findings");
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0]["subject"], json!("scn_the_breach"));
+    assert_eq!(
+        findings[0]["certainty"],
+        json!("possible"),
+        "his death is `0811~` and the siege is `0812-04~`, so the world permits it"
+    );
+    assert!(findings[0]["message"].as_str().unwrap().contains("on the page"));
 }

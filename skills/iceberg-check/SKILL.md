@@ -18,15 +18,23 @@ world points at.
 **What is underbuilt?** Records the world leans on constantly that have almost nothing
 in them. This is where a writer actually gets stuck, and it is invisible without asking.
 
-## Measure connectedness
+## Measure the page, not just the world
 
-For each record, `get_entity` gives you the two fields that matter, neither of which any
-file states:
+`iceberg` is the whole report in one call, and it is the one to start with. For each
+record it gives you what no file states:
 
-- `referenced_by` — other records whose facts point here
-- `appears_in` — events naming it as participant or location
+- `mentions` — times the linked prose actually names it, with `first_seen`, a sentence
+  you can read to check the count
+- `scenes` — which scenes it appears in
+- `referenced_by` / `appears_in` / `cast_in` — what the *records* say: facts pointing
+  here, events naming it, scenes listing it in their cast
 
-Together with fact and prose volume, that sorts a world into four quadrants:
+`cast_in` and `mentions` are different measurements and the gap between them is
+interesting on its own: a scene listing somebody who never appears in its prose is
+usually a note the chapter outgrew.
+
+Records come back `underbuilt` first, already sorted. Together with fact and prose
+volume, that is the four quadrants:
 
 | | Few references | Many references |
 |---|---|---|
@@ -36,16 +44,31 @@ Together with fact and prose volume, that sorts a world into four quadrants:
 Report the bottom-right quadrant first. A place named in six events with no prose and no
 facts is the single most useful thing you can hand a writer.
 
-## Bring in the prose, if it is linked
+## Bring in the prose
 
-If the world has `notes/`, `list_notes` and read them: something mentioned constantly in
-the notes but thin in the world is underbuilt in the same way.
+`list_scenes` gives you the book in reading order. `read_scene` gives you one scene's
+prose and every record it names. Use them when the writer asks about a particular
+chapter, or when a number in `iceberg` looks wrong and you want to see the page it came
+from.
 
-**Be honest about the limit.** Until scenes are linked to the manuscript, this measures
-*internal* connectedness — how much the world refers to itself — not what surfaces on
-the page. Those are correlated and not the same thing. A place that appears in one scene
-of one chapter can matter more than one referenced by nine records. Say which you
-measured.
+If the world also has `notes/`, `list_notes` and read them: something mentioned
+constantly in the notes but thin in the world is underbuilt in the same way.
+
+**Know which measurement you have.** `iceberg` reports `standing`, and it changes what
+you can honestly say:
+
+- `linked` — the ratio is real. This is what surfaces on the page.
+- `unlinked` — no manuscript is attached, so every record reads as submerged. That is
+  not a finding about the world. Say so, and offer `manuscript.root` in `world.yaml` as
+  the thing that would make the question answerable.
+- `root_missing` — the book moved. Tell them, do not report 0%.
+
+**A low ratio has two causes and they need opposite responses.** Either the world is
+genuinely not on the page, or the world has not been told what the page calls things —
+a character the prose only ever names by a first name reads as absent until that
+spelling is in their `aka`. Check `first_seen` on the records that *did* surface. If the
+ones that surfaced are all full-name matches, suspect the second cause and offer to add
+aliases before concluding anything about the writer's book.
 
 ## Never call anything waste
 
