@@ -157,6 +157,14 @@ pub struct LineageArgs {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct SuccessionArgs {
+    /// Narrow to one thing that changed hands, by the `key` a previous call returned.
+    /// Omit to list everything in the world that ever did.
+    #[serde(default)]
+    pub key: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct CheckArgs {
     /// Only findings about this record, or naming it.
     #[serde(default)]
@@ -323,6 +331,54 @@ pub struct Kin {
     /// 1 is a parent or child, 2 a grandparent or grandchild.
     pub generation: usize,
     pub lifespan: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SuccessionOut {
+    pub note: &'static str,
+    pub successions: Vec<SuccessionDto>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SuccessionDto {
+    /// Pass back as `key` to ask about just this one.
+    pub key: String,
+    pub label: String,
+    pub attr: String,
+    /// `title` — one value held by several records, like a duchy passing down a line.
+    /// `office` — one record's attribute passing between values, like a territory
+    /// changing hands. They are the same shape and are reported the same way.
+    pub kind: &'static str,
+    pub holders: Vec<TenureDto>,
+    /// Stretches nobody held it. These are `succession-gap` findings seen from the other
+    /// side, and they are the interesting end of this tool.
+    pub gaps: Vec<StretchDto>,
+    /// Stretches more than one record could have held it. *Unsettled* rather than
+    /// contested: two tenures meeting at a date written `0768~` land here because nobody
+    /// wrote the day down, which is uncertainty and not a rival claim.
+    pub unsettled: Vec<StretchDto>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct TenureDto {
+    pub id: String,
+    pub name: String,
+    /// Orientation, from the certain core. Compute with the day numbers, not with this.
+    pub held: String,
+    /// The stretch it certainly held it over.
+    pub from: Option<i64>,
+    pub to: Option<i64>,
+    /// The widest stretch it possibly did. Equal to the core when the dates are exact,
+    /// and wider whenever the world wrote `~` — which is most of the interesting ones.
+    pub earliest: Option<i64>,
+    pub latest: Option<i64>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct StretchDto {
+    pub from: i64,
+    pub to: i64,
+    pub label: String,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -799,53 +855,99 @@ impl WorldServer {
             let entity = world.entities.get(&args.id).ok_or_else(|| unknown_id(world, &args.id))?;
             let depth = args.depth.unwrap_or(3);
 
-            let mut ancestors = Vec::new();
-            let mut frontier = vec![args.id.clone()];
-            let mut seen = vec![args.id.clone()];
-            for generation in 1..=depth {
-                let mut next = Vec::new();
-                for id in &frontier {
-                    let Some(e) = world.entities.get(id) else { continue };
-                    for parent in &e.parents {
-                        if seen.contains(parent) {
-                            continue;
-                        }
-                        seen.push(parent.clone());
-                        if let Some(p) = world.entities.get(parent) {
-                            ancestors.push(kin(world, p, generation));
-                            next.push(parent.clone());
-                        }
-                    }
-                }
-                if next.is_empty() {
-                    break;
-                }
-                frontier = next;
-            }
-
-            let mut descendants = Vec::new();
-            let mut frontier = vec![args.id.clone()];
-            let mut seen = vec![args.id.clone()];
-            for generation in 1..=depth {
-                let mut next = Vec::new();
-                for e in world.entities.values() {
-                    if seen.contains(&e.id) || !e.parents.iter().any(|p| frontier.contains(p)) {
-                        continue;
-                    }
-                    seen.push(e.id.clone());
-                    descendants.push(kin(world, e, generation));
-                    next.push(e.id.clone());
-                }
-                if next.is_empty() {
-                    break;
-                }
-                frontier = next;
-            }
+            // Both walks live in `wb_store::kin`. This tool used to keep its own copy of
+            // them beside `World::ancestors`, which is how one question quietly acquires
+            // two answers — and the app's lineage view would have made a third.
+            let describe = |relatives: Vec<wb_store::kin::Relative<'_>>| {
+                relatives.into_iter().map(|r| kin(world, r.entity, r.generation)).collect()
+            };
 
             Ok(Json(LineageOut {
                 subject: NamedRef::known(&entity.id, &entity.name),
-                ancestors,
-                descendants,
+                ancestors: describe(wb_store::kin::ancestors(world, &args.id, depth)),
+                descendants: describe(wb_store::kin::descendants(world, &args.id, depth)),
+            }))
+        })
+    }
+
+    /// Everything in this world that changed hands, in the order it was held.
+    ///
+    /// The transpose of the `succession-gap` rule. That rule asks "did this person ever
+    /// hold no title"; this asks "who held *the* title", which is a different question
+    /// and the one a succession crisis is actually about. It covers anything passed
+    /// between records — a duchy down a bloodline, a territory between empires — because
+    /// they are the same shape, and treating a title as special would be a genealogy
+    /// subsystem this world model deliberately does not have.
+    #[tool(annotations(title = "Succession", read_only_hint = true))]
+    async fn succession(
+        &self,
+        Parameters(args): Parameters<SuccessionArgs>,
+    ) -> Result<Json<SuccessionOut>, String> {
+        self.read(|world| {
+            let stretch = |i: &wb_core::Interval| {
+                Some(StretchDto {
+                    from: i.from?.0,
+                    to: i.to?.0,
+                    label: format!(
+                        "{} to {}",
+                        world.calendar.format_numeric(i.from?),
+                        world.calendar.format_numeric(i.to?)
+                    ),
+                })
+            };
+
+            let span_label = |f: &wb_core::FuzzyInterval| {
+                let show = |d: Option<Day>| {
+                    d.map_or_else(|| "—".to_string(), |d| world.calendar.format_numeric(d))
+                };
+                let exact = f.certain == f.possible;
+                format!(
+                    "{} → {}{}",
+                    show(f.certain.from),
+                    show(f.certain.to),
+                    if exact { "" } else { ", give or take" }
+                )
+            };
+
+            let mut found: Vec<SuccessionDto> = wb_store::kin::successions(world)
+                .iter()
+                .map(|s| SuccessionDto {
+                    key: format!("{}|{}|{}", s.kind.slug(), s.attr, s.of),
+                    label: s.label.clone(),
+                    attr: s.attr.clone(),
+                    kind: s.kind.slug(),
+                    holders: s
+                        .holders
+                        .iter()
+                        .map(|t| TenureDto {
+                            id: t.holder.id.clone(),
+                            name: t.holder.name.clone(),
+                            held: span_label(&t.span),
+                            from: t.span.certain.from.map(|d| d.0),
+                            to: t.span.certain.to.map(|d| d.0),
+                            earliest: t.span.possible.from.map(|d| d.0),
+                            latest: t.span.possible.to.map(|d| d.0),
+                        })
+                        .collect(),
+                    gaps: s.gaps.iter().filter_map(stretch).collect(),
+                    unsettled: s.overlaps.iter().filter_map(stretch).collect(),
+                })
+                .collect();
+
+            if let Some(key) = &args.key {
+                found.retain(|s| &s.key == key);
+                if found.is_empty() {
+                    return Err(format!("nothing in this world called `{key}` changed hands"));
+                }
+            }
+
+            Ok(Json(SuccessionOut {
+                note: "A gap is a stretch nobody held it — the same thing `check_consistency` \
+                       reports as `succession-gap`, seen from the other side. An unsettled \
+                       stretch is not a rival claim: it is two vague dates meeting, and the \
+                       world genuinely does not say who held it then. Do not resolve one by \
+                       picking a side.",
+                successions: found,
             }))
         })
     }

@@ -64,9 +64,12 @@ fn the_iceberg_counts_what_the_prose_actually_names() {
     let world = vashen();
     let report = iceberg::report(&world, &story(&world));
 
-    assert_eq!(report.total, 11);
+    // Aldric III arrived with the dynasty view and the book has never named him: the
+    // ratio drops, which is the measurement doing its job rather than the world getting
+    // worse. A record below the waterline is not debt.
+    assert_eq!(report.total, 12);
     assert_eq!(report.surfaced, 8);
-    assert_eq!(report.ratio(), Some(73));
+    assert_eq!(report.ratio(), Some(67));
 
     let by_id = |id: &str| report.entries.iter().find(|e| e.id == id).expect(id);
 

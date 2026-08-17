@@ -22,7 +22,7 @@ fn owner(world: &World, at: Day) -> Option<(String, Containment)> {
 fn loads_every_record_in_the_folder() {
     let world = vashen();
     assert_eq!(world.name, "The Vashen Reckoning");
-    assert_eq!(world.entities.len(), 11);
+    assert_eq!(world.entities.len(), 12);
     assert_eq!(world.events.len(), 3);
 
     // Map geometry rides on the entity, in normalized 0..1 coordinates.
@@ -116,8 +116,11 @@ fn lineage_falls_out_of_parentage_edges() {
     let world = vashen();
     let names: Vec<&str> =
         world.ancestors("act_aldric_vane", 3).iter().map(|e| e.name.as_str()).collect();
-    assert_eq!(names, vec!["Maren Vane", "Isolde Corr"]);
-    assert!(world.ancestors("act_maren_vane", 3).is_empty());
+    assert_eq!(names, vec!["Maren Vane", "Isolde Corr", "Aldric Vane III"], "breadth-first");
+    assert!(world.ancestors("act_aldric_vane_iii", 3).is_empty());
+
+    // Depth is honoured: two steps stops before the grandfather.
+    assert_eq!(world.ancestors("act_aldric_vane", 1).len(), 2);
 }
 
 #[test]
@@ -327,7 +330,7 @@ fn a_record_does_not_reference_itself() {
 fn scenes_load_without_disturbing_the_counts() {
     let world = vashen();
     assert_eq!(world.scenes.len(), 3);
-    assert_eq!(world.entities.len(), 11, "scenes are not entities");
+    assert_eq!(world.entities.len(), 12, "scenes are not entities");
     assert_eq!(world.events.len(), 3, "scenes are not events");
 
     let breach = &world.scenes["scn_the_breach"];

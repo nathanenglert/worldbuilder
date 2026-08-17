@@ -12,12 +12,23 @@ free.
 ## Find the gap
 
 ```
-check_consistency(rule: "succession-gap")
+succession()                     → everything in this world that changed hands
+succession(key: "title|title|Duke of Corrath")   → just that one
 ```
 
-Or start from a person: `get_entity(id)` and read `existence.to` against the windows of
-the titles they hold. A title whose `to` is the holder's death and whose successor's
-`from` is later leaves the years between unaccounted for.
+Each entry is the holders in the order they held it, plus two lists that are the whole
+point:
+
+- **`gaps`** — nobody held it. The same thing `check_consistency(rule: "succession-gap")`
+  reports, seen from the other side: the rule asks whether *a person* ever held no title,
+  and this asks who held *the title*, which is the question a crisis is actually about.
+- **`unsettled`** — more than one holder is possible. **This is not a rival claim.** It
+  is two vague dates meeting, and the world genuinely does not say. Resolving it by
+  picking a side is inventing canon; saying so is the finding.
+
+`succession()` covers anything passed between records, not only titles — a territory
+changing hands between empires comes out the same shape as a duchy passing down a line,
+because in this model it *is* the same shape.
 
 ## Assemble the claimants
 
@@ -65,7 +76,8 @@ Only once the claimants are real. Keep it grounded in what the world says:
 
 A resolved succession is usually two changes: close the old holder's title window, open
 the new one at the same date. `[from, to)` intervals are half-open, so the two meet
-exactly and the gap closes cleanly.
+exactly and the gap closes cleanly — and `succession()` will show no hole and no
+unsettled stretch afterwards, which is the check that it actually closed.
 
 Anchor both to the event that caused it — `@evt_siege_of_marrow` — rather than a year,
 so re-dating the event drags the succession with it.

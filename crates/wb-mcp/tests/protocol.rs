@@ -120,6 +120,7 @@ async fn every_tool_is_advertised_with_a_description_and_a_schema() {
         "timeline",
         "territory_at",
         "lineage",
+        "succession",
         "check_consistency",
         "search",
         "resolve_date",
@@ -407,6 +408,38 @@ async fn a_contested_border_arrives_contested_and_not_decided() {
         contested.iter().all(|c| c["certainty"] == "maybe"),
         "neither is settled, and the server must not pick: {contested:#?}"
     );
+}
+
+#[tokio::test]
+async fn succession_answers_the_question_the_gap_rule_cannot() {
+    let agent = Agent::example().await;
+    let out = agent.call("succession", json!({})).await;
+
+    let all = out["successions"].as_array().expect("successions");
+    assert!(all.len() >= 2, "a title and a territory at least: {all:?}");
+
+    let ducal = all.iter().find(|s| s["label"] == "Duke of Corrath").expect("the ducal title");
+    assert_eq!(ducal["kind"], "title");
+    let holders: Vec<&str> =
+        ducal["holders"].as_array().unwrap().iter().map(|h| h["id"].as_str().unwrap()).collect();
+    assert_eq!(holders, ["act_aldric_vane_iii", "act_maren_vane", "act_aldric_vane"]);
+
+    // The Vale changing hands is the same shape from the other direction, and it is in
+    // here for exactly that reason: a title is not a special kind of thing.
+    let vale = all
+        .iter()
+        .find(|s| s["label"].as_str().is_some_and(|l| l.contains("Vale of Corrath")))
+        .expect("the Vale changes hands");
+    assert_eq!(vale["kind"], "office");
+
+    // The distinction the note exists to protect.
+    assert!(ducal["gaps"].as_array().unwrap().is_empty(), "the Vale is never unruled");
+    assert_eq!(ducal["unsettled"].as_array().unwrap().len(), 1, "one vague handover");
+    let note = out["note"].as_str().unwrap();
+    assert!(note.contains("not a rival claim"), "the caveat travels on the payload: {note}");
+
+    let one = agent.call("succession", json!({ "key": ducal["key"] })).await;
+    assert_eq!(one["successions"].as_array().unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -787,7 +820,7 @@ async fn the_server_notices_the_world_changing_under_it() {
     let root = scratch_world("reload");
     let agent = Agent::connect(root.clone()).await;
 
-    assert_eq!(agent.call("describe_world", json!({})).await["entities"], 11);
+    assert_eq!(agent.call("describe_world", json!({})).await["entities"], 12);
 
     // The writer adds a record in their own editor while the agent is connected.
     fs::write(
@@ -797,7 +830,7 @@ async fn the_server_notices_the_world_changing_under_it() {
     .unwrap();
 
     let after = agent.call("describe_world", json!({})).await;
-    assert_eq!(after["entities"], 12, "a stale world would still answer 11");
+    assert_eq!(after["entities"], 13, "a stale world would still answer 12");
     assert_eq!(after["reloads"], 1);
 
     let found = agent.call("get_entity", json!({ "id": "place_greyford" })).await;
@@ -1038,12 +1071,15 @@ async fn the_iceberg_reports_what_reaches_the_page_and_says_what_it_measured() {
     let out = agent.call("iceberg", json!({})).await;
 
     assert_eq!(out["standing"], json!("linked"));
-    assert_eq!(out["total"], json!(11));
+    // Twelve records, eight of them named by the book. The fourth Aldric's grandfather
+    // joined the world in slice 6 and the manuscript has never heard of him, which is
+    // what an iceberg is *for* — the ratio going down is the measurement working.
+    assert_eq!(out["total"], json!(12));
     assert_eq!(out["surfaced"], json!(8));
-    assert_eq!(out["surfaced_percent"], json!(73));
+    assert_eq!(out["surfaced_percent"], json!(67));
 
     let records = out["records"].as_array().expect("records");
-    assert_eq!(records.len(), 11);
+    assert_eq!(records.len(), 12);
 
     // The caveat travels on the payload, not only in a skill, because the number is what
     // gets quoted and the number is the part that can mislead.
