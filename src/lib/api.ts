@@ -369,6 +369,131 @@ export interface SceneDraft {
   prose: string | null;
 }
 
+// ------------------------------------------------------------- descent
+
+/** One row of the lineage chart: a record with a lifespan. */
+export interface Life {
+  id: string;
+  name: string;
+  type: string;
+  primitive: string | null;
+  /** Steps down from the oldest recorded forebear. Zero is nobody's child. */
+  generation: number;
+  parents: string[];
+  /** The certain core of the lifespan… */
+  from: number | null;
+  to: number | null;
+  /** …and the possible window around it, which is what the feathered ends draw. */
+  earliest: number | null;
+  latest: number | null;
+  label: string;
+}
+
+export interface Tenure {
+  holder: string;
+  name: string;
+  from: number | null;
+  to: number | null;
+  earliest: number | null;
+  latest: number | null;
+}
+
+/**
+ * A thing passed from one record to the next.
+ *
+ * `title` is one value with many holders — the Duke of Corrath, held by Maren and then
+ * Aldric. `office` is one record's attribute with many values — the Vale's owner, held
+ * by the duchy and then the empire. Both draw the same way.
+ */
+export interface Succession {
+  key: string;
+  label: string;
+  attr: string;
+  kind: "title" | "office";
+  holders: Tenure[];
+  gaps: [number, number][];
+  overlaps: [number, number][];
+}
+
+export interface Lineage {
+  lives: Life[];
+  successions: Succession[];
+}
+
+// ------------------------------------------------------------- versions
+
+/** `none` — nothing tracks this folder. `nested` — read-only. `root` — everything. */
+export type RepoStanding = "none" | "nested" | "root";
+
+export interface Commit {
+  id: string;
+  full: string;
+  summary: string;
+  author: string;
+  /** Unix seconds. Real-world time, emphatically not the world's own calendar. */
+  when: number;
+}
+
+export interface Version {
+  standing: { kind: RepoStanding; repo: string | null; world: string; note: string | null };
+  branch: string | null;
+  canon: string | null;
+  head: Commit | null;
+  dirty: { path: string; state: "new" | "modified" | "deleted" }[];
+  unborn: boolean;
+}
+
+export interface Branch {
+  name: string;
+  is_head: boolean;
+  /** What deleting it would make unreachable — say this before the second click. */
+  ahead: number;
+  /** Non-zero means merging is not a fast-forward, and will be refused. */
+  behind: number;
+  tip: Commit | null;
+}
+
+export interface History {
+  commits: Commit[];
+  scanned: number;
+  truncated: boolean;
+}
+
+export interface RecordDiff {
+  id: string;
+  name: string;
+  kind: string;
+  /** Field names, never line numbers: `existence`, `facts +1 −1`. */
+  fields: string[];
+  moved: { what: string; from: number | null; to: number | null; days: number }[];
+}
+
+export interface Compare {
+  rev: string;
+  label: string;
+  added: RecordDiff[];
+  removed: RecordDiff[];
+  changed: RecordDiff[];
+  resolved: Finding[];
+  introduced: Finding[];
+  breaks: boolean;
+  files: { path: string; diff: DiffLine[] }[];
+  more_files: number;
+}
+
+// -------------------------------------------------------------- publishing
+
+export type ExportScope = "everything" | "as-of" | "on-the-page";
+
+export interface ExportPreview {
+  caption: string;
+  bytes: number;
+  records: number;
+  omitted: number;
+  links: number;
+  suggested: string;
+}
+
 /** False when the page is open in a plain browser rather than the desktop shell. */
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -415,4 +540,26 @@ export const api = {
   previewScene: (draft: SceneDraft) => invoke<EditPreview>("preview_scene", { draft }),
   saveScene: (draft: SceneDraft, revision: string | null, allowReformat = false) =>
     invoke<SaveResult>("save_scene", { draft, revision, allowReformat }),
+
+  lineage: () => invoke<Lineage>("lineage"),
+
+  initialWorld: () => invoke<string | null>("initial_world"),
+  recentWorlds: () => invoke<string[]>("recent_worlds"),
+
+  versionStatus: () => invoke<Version>("version_status"),
+  versionHistory: (limit = 30) => invoke<History>("version_history", { limit }),
+  versionBranches: () => invoke<Branch[]>("version_branches"),
+  versionCompare: (rev: string) => invoke<Compare>("version_compare", { rev }),
+  versionCommit: (message: string) => invoke<Commit>("version_commit", { message }),
+  versionBranch: (name: string, switchTo: boolean) =>
+    invoke<WorldSummary>("version_branch", { name, switch: switchTo }),
+  versionSwitch: (name: string) => invoke<WorldSummary>("version_switch", { name }),
+  versionMerge: (target: string) => invoke<string>("version_merge", { target }),
+  versionDelete: (name: string) => invoke<void>("version_delete", { name }),
+  versionDiscard: () => invoke<[number, WorldSummary]>("version_discard"),
+
+  previewExport: (scope: ExportScope, at: string | null) =>
+    invoke<ExportPreview>("preview_export", { scope, at }),
+  writeExport: (scope: ExportScope, at: string | null, path: string, overwrite: boolean) =>
+    invoke<{ path: string; bytes: number }>("write_export", { scope, at, path, overwrite }),
 };

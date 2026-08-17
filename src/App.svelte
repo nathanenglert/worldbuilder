@@ -4,6 +4,7 @@
     api,
     inTauri,
     type Finding,
+    type Lineage,
     type ProposalSummary,
     type Snapshot,
     type Story,
@@ -19,6 +20,9 @@
   import Proposals from "./lib/Proposals.svelte";
   import Editor from "./lib/Editor.svelte";
   import StoryPanel from "./lib/StoryPanel.svelte";
+  import LineageView from "./lib/LineageView.svelte";
+  import VersionPanel from "./lib/VersionPanel.svelte";
+  import ExportPanel from "./lib/ExportPanel.svelte";
 
   let summary = $state<WorldSummary | null>(null);
   let events = $state<WorldEvent[]>([]);
@@ -29,7 +33,15 @@
   let proposals = $state<ProposalSummary[]>([]);
   let scenes = $state<StoryScene[]>([]);
   let story = $state<Story | null>(null);
-  let panel = $state<"inspector" | "checks" | "proposals" | "story" | "edit">("inspector");
+  let lineage = $state<Lineage | null>(null);
+  let panel = $state<
+    "inspector" | "checks" | "proposals" | "story" | "version" | "export" | "edit"
+  >("inspector");
+  /**
+   * The centre pane. Both are projections of the same timeline — one onto the ground,
+   * one onto descent — so they share the scrubber underneath rather than the axis.
+   */
+  let view = $state<"map" | "lineage">("map");
   let day = $state(0);
   let label = $state("");
   let selected = $state<string | null>(null);
@@ -37,6 +49,12 @@
   let busy = $state(false);
   let jumpTo = $state("");
   let rootPath = $state("");
+
+  // ---- opening somebody else's world
+  let opening = $state(false);
+  let openPath = $state("");
+  let recent = $state<string[]>([]);
+  let version = $state<{ branch: string | null; dirty: number; kind: string } | null>(null);
 
   // ---- authoring
   let editTarget = $state<{ kind: "entity" | "event" | "scene"; id: string | null } | null>(null);
@@ -78,6 +96,28 @@
       else hi = mid;
     }
     return lo;
+  }
+
+  /**
+   * Just enough version state for the header chip. The panel fetches the rest — a chip
+   * that showed history would be a second copy of it going stale.
+   */
+  async function loadVersion() {
+    try {
+      const v = await api.versionStatus();
+      version = { branch: v.branch, dirty: v.dirty.length, kind: v.standing.kind };
+    } catch {
+      version = null;
+    }
+  }
+
+  /** Fetched on demand, because most sessions never open the lineage view. */
+  async function loadLineage() {
+    try {
+      lineage = await api.lineage();
+    } catch (e) {
+      error = String(e);
+    }
   }
 
   async function fetchSnapshot(d: number) {
@@ -123,6 +163,10 @@
       proposals = await api.listProposals();
       scenes = await api.scenes();
       story = await api.story();
+      lineage = null;
+      view = "map";
+      recent = await api.recentWorlds();
+      void loadVersion();
       mapQueries = 0;
       scrubSteps = 0;
       selected = null;
@@ -176,8 +220,34 @@
       proposals = await api.listProposals();
       scenes = await api.scenes();
       story = await api.story();
+      if (lineage) await loadLineage();
       lastBucket = -1;
       await fetchSnapshot(day);
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  /**
+   * A branch switch rewrites every file in the world folder, so nothing derived from it
+   * survives. The backend has already reloaded and handed back a fresh summary; this is
+   * the same refetch a decided proposal does, for the same reason.
+   */
+  async function afterBranch(next: WorldSummary) {
+    summary = next;
+    try {
+      events = await api.timeline();
+      findings = await api.checkWorld();
+      proposals = await api.listProposals();
+      scenes = await api.scenes();
+      story = await api.story();
+      if (lineage) await loadLineage();
+      void loadVersion();
+      selected = null;
+      lastBucket = -1;
+      await fetchSnapshot(day);
+      terrain = await api.terrain();
+      if (terrain) backdrop = await api.mapImage();
     } catch (e) {
       error = String(e);
     }
@@ -254,6 +324,10 @@
       // There is no write in this app that provably touches neither.
       scenes = await api.scenes();
       story = await api.story();
+      // Only when it is on screen or has been: a parentage edge, a title window and a
+      // date anchor can all move under a save, so it is never safe to keep a stale one.
+      if (lineage) await loadLineage();
+      void loadVersion();
       lastBucket = -1;
       await fetchSnapshot(day);
       if (markerChanged && terrain) terrain.places = await api.terrainPlaces();
@@ -268,9 +342,12 @@
       return;
     }
     try {
-      const path = await api.examplePath();
+      // The world this writer had open last, if it is still there, and the bundled
+      // example otherwise. A local-first tool that could only ever open its own demo
+      // was the oldest limitation in this app.
+      const path = await api.initialWorld();
       if (path) await open(path);
-      else error = "Could not locate the example world.";
+      else error = "Could not locate a world to open.";
     } catch (e) {
       error = String(e);
     }
@@ -280,7 +357,12 @@
 <div class="app">
   <header>
     <div class="identity">
-      <p class="eyebrow">{summary?.calendar ?? "Worldbuilder"}</p>
+      <p class="eyebrow">
+        {summary?.calendar ?? "Worldbuilder"}
+        <button class="open" onclick={() => (opening = !opening)} title="Open another world folder">
+          {opening ? "cancel" : "open…"}
+        </button>
+      </p>
       <h1>{summary?.name ?? "No world open"}</h1>
     </div>
 
@@ -350,6 +432,24 @@
           </button>
         {/if}
 
+        {#if version && version.kind !== "none"}
+          <button
+            class="chip"
+            class:live={version.dirty === 0}
+            class:note={version.dirty > 0}
+            onclick={() => (panel = panel === "version" ? "inspector" : "version")}
+            title="Save points and what-ifs"
+          >
+            {#if version.dirty > 0}
+              {version.dirty} to save
+            {:else if version.branch}
+              on {version.branch}
+            {:else}
+              versions
+            {/if}
+          </button>
+        {/if}
+
         <!-- Grouped so the row breaks between "look at" and "make", never mid-group. -->
         <span class="group">
           <button class="chip make" onclick={() => edit("entity", null)} title="Write a new record">
@@ -360,6 +460,13 @@
           </button>
           <button class="chip make" onclick={() => edit("scene", null)} title="Write a new scene">
             + scene
+          </button>
+          <button
+            class="chip make"
+            onclick={() => (panel = panel === "export" ? "inspector" : "export")}
+            title="Write this world out as one file"
+          >
+            ⤓ publish
           </button>
         </span>
       </div>
@@ -376,27 +483,86 @@
     {/if}
   </header>
 
+  {#if opening}
+    <!-- A path field rather than a native folder picker: no extra plugin, and a native
+         modal cannot be driven by the automation that verifies everything else here. -->
+    <form
+      class="opener"
+      onsubmit={(e) => {
+        e.preventDefault();
+        const path = openPath.trim();
+        if (!path) return;
+        opening = false;
+        openPath = "";
+        void open(path);
+      }}
+    >
+      <input
+        bind:value={openPath}
+        placeholder="/path/to/your-world  (the folder with world.yaml in it)"
+        spellcheck="false"
+        aria-label="World folder to open"
+      />
+      <button type="submit">open</button>
+      {#each recent.filter((p) => p !== rootPath).slice(0, 4) as p (p)}
+        <button
+          type="button"
+          class="recent"
+          title={p}
+          onclick={() => {
+            opening = false;
+            void open(p);
+          }}
+        >
+          {p.split("/").pop()}
+        </button>
+      {/each}
+    </form>
+  {/if}
+
   {#if error}
     <p class="error">{error}</p>
   {/if}
 
   <div class="body" class:editing={panel === "edit"}>
-    <MapView
-      {snapshot}
-      {terrain}
-      {backdrop}
-      {selected}
-      onselect={select}
-      mode={mapMode}
-      draft={panel === "edit" ? editGeometry : null}
-      onmarker={(p) => (editGeometry = { ...editGeometry, marker: p })}
-      onshape={(points) => (editGeometry = { ...editGeometry, shape: points })}
-      onmodedone={() => (mapMode = "browse")}
-      scenes={placedScenes}
-      activeScene={panel === "edit" && editTarget?.kind === "scene" ? editTarget.id : null}
-      showStory={panel === "story" || (panel === "edit" && editTarget?.kind === "scene")}
-      onscene={openScene}
-    />
+    <div class="stage">
+      <!-- Two projections of one timeline: the map onto the ground, the lineage onto
+           descent. They swap here rather than sitting side by side, because both want
+           the width and both are driven by the same scrubber underneath. -->
+      {#if view === "map"}
+        <MapView
+          {snapshot}
+          {terrain}
+          {backdrop}
+          {selected}
+          onselect={select}
+          mode={mapMode}
+          draft={panel === "edit" ? editGeometry : null}
+          onmarker={(p) => (editGeometry = { ...editGeometry, marker: p })}
+          onshape={(points) => (editGeometry = { ...editGeometry, shape: points })}
+          onmodedone={() => (mapMode = "browse")}
+          scenes={placedScenes}
+          activeScene={panel === "edit" && editTarget?.kind === "scene" ? editTarget.id : null}
+          showStory={panel === "story" || (panel === "edit" && editTarget?.kind === "scene")}
+          onscene={openScene}
+        />
+      {:else}
+        <LineageView {lineage} {day} {selected} onselect={select} onday={goto} />
+      {/if}
+
+      {#if summary}
+        <div class="views">
+          <button class:on={view === "map"} onclick={() => (view = "map")}>map</button>
+          <button
+            class:on={view === "lineage"}
+            onclick={() => {
+              view = "lineage";
+              if (!lineage) void loadLineage();
+            }}>lineage</button
+          >
+        </div>
+      {/if}
+    </div>
     {#if panel === "edit" && editTarget}
       <Editor
         target={editTarget}
@@ -428,6 +594,15 @@
         onscene={openScene}
         onclose={() => (panel = "inspector")}
       />
+    {:else if panel === "version"}
+      <VersionPanel
+        onchanged={afterBranch}
+        onstatus={(v) => (version = { branch: v.branch, dirty: v.dirty.length, kind: v.standing.kind })}
+        onselect={select}
+        onclose={() => (panel = "inspector")}
+      />
+    {:else if panel === "export"}
+      <ExportPanel onjump={goto} onclose={() => (panel = "inspector")} />
     {:else}
       <Inspector {snapshot} {terrain} {selected} onselect={select} onedit={edit} />
     {/if}
@@ -630,6 +805,63 @@
     color: var(--ink-3);
   }
 
+  .eyebrow .open {
+    margin-left: 8px;
+    font-family: var(--f-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--rule-strong);
+  }
+
+  .eyebrow .open:hover {
+    color: var(--accent);
+  }
+
+  .opener {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    padding: 8px 20px;
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface);
+  }
+
+  .opener input {
+    flex: 1;
+    min-width: 220px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    color: var(--ink);
+    font-family: var(--f-mono);
+    font-size: 11.5px;
+    padding: 6px 9px;
+  }
+
+  .opener input::placeholder {
+    color: var(--rule-strong);
+  }
+
+  .opener button {
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    color: var(--ink-3);
+    border: 1px solid var(--rule);
+    padding: 5px 10px;
+    white-space: nowrap;
+  }
+
+  .opener button:hover {
+    color: var(--accent);
+    border-color: var(--rule-strong);
+  }
+
+  .opener .recent {
+    color: var(--rule-strong);
+  }
+
   .error {
     margin: 0;
     padding: 8px 20px;
@@ -644,6 +876,45 @@
     min-height: 0;
     display: grid;
     grid-template-columns: 1fr minmax(280px, 350px);
+  }
+
+  .stage {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+  }
+
+  /* Top-right of the stage: the only corner the map does not already use. Layers are
+     top-left, the legend bottom-left, the zoom readout bottom-right. */
+  .views {
+    position: absolute;
+    right: 12px;
+    top: 12px;
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+    background: color-mix(in srgb, var(--paper) 86%, transparent);
+    border: 1px solid var(--rule);
+  }
+
+  .views button {
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    color: var(--ink-3);
+    padding: 3px 9px;
+    border: 1px solid transparent;
+  }
+
+  .views button:hover {
+    color: var(--ink);
+  }
+
+  .views button.on {
+    color: var(--accent);
+    border-color: var(--rule-strong);
+    background: var(--accent-soft);
   }
 
   /*
