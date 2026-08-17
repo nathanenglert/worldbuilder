@@ -1,0 +1,13 @@
+[package]
+name = "wb-export"
+description = "A world as one self-contained HTML document: the map, the timeline, and every record."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+wb-core = { path = "../wb-core" }
+wb-store = { path = "../wb-store" }
+wb-story = { path = "../wb-story" }
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
