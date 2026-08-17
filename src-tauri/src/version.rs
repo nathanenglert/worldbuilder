@@ -177,17 +177,28 @@ fn materialized(standing: &Standing, rev: &str, world: &World) -> Result<(Scratc
     let mut other = wb_store::load(scratch.path()).map_err(|e| {
         format!("that revision does not load as a world: {e}. Nothing was changed.")
     })?;
+    borrow_manuscript(&mut other, world);
 
-    // The finding this module exists to close. See the module comment.
-    if let Some(spec) = &world.manuscript {
-        let live = world.root.join(&spec.root);
+    Ok((scratch, other))
+}
+
+/// Point a world loaded from somewhere else at the *live* manuscript.
+///
+/// The finding this module exists to close, in four lines. `manuscript.root` is stored
+/// relative to the world folder, so a revision materialized into a scratch directory
+/// resolves `../manuscript` to nothing and reads as a world with no book at all — every
+/// contradiction between the prose and the records vanishes from that side, and the
+/// comparison reports the other revision as settling them.
+///
+/// `Path::join` with an absolute argument replaces, so one assignment does it.
+pub fn borrow_manuscript(other: &mut World, live: &World) {
+    if let Some(spec) = &live.manuscript {
+        let root = live.root.join(&spec.root);
         other.manuscript = Some(ManuscriptSpec {
-            root: live.canonicalize().unwrap_or(live),
+            root: root.canonicalize().unwrap_or(root),
             order: spec.order.clone(),
         });
     }
-
-    Ok((scratch, other))
 }
 
 fn record(change: wb_propose::RecordChange) -> RecordDiffDto {
