@@ -12,6 +12,8 @@ import type {
   EventDraft,
   EventRecord,
   FactRecord,
+  SceneDraft,
+  SceneRecord,
   ValueKind,
 } from "./api";
 
@@ -47,6 +49,24 @@ export interface EventDraftState {
   date: string;
   participants: string[];
   location: string;
+  idPinned: boolean;
+}
+
+/**
+ * A scene, as the form holds it.
+ *
+ * `aka` has no analogue here and `prose` is a plain string rather than a path type: the
+ * writer types what their editor's "copy link to heading" gave them, and the app resolves
+ * it late rather than parsing it into pieces it would then have to reassemble.
+ */
+export interface SceneDraftState {
+  id: string;
+  name: string;
+  date: string;
+  pov: string;
+  onPage: string[];
+  location: string;
+  prose: string;
   idPinned: boolean;
 }
 
@@ -164,6 +184,44 @@ export function payloadOf(d: Draft, includeBody: boolean): EntityDraft {
   };
 }
 
+export function sceneDraftOf(record: SceneRecord): SceneDraftState {
+  return {
+    id: record.id,
+    name: record.name,
+    date: record.date,
+    pov: shown(record.pov),
+    onPage: record.on_page,
+    location: shown(record.location),
+    prose: shown(record.prose),
+    idPinned: true,
+  };
+}
+
+export function blankSceneDraft(): SceneDraftState {
+  return {
+    id: "",
+    name: "",
+    date: "",
+    pov: "",
+    onPage: [],
+    location: "",
+    prose: "",
+    idPinned: false,
+  };
+}
+
+export function scenePayloadOf(d: SceneDraftState): SceneDraft {
+  return {
+    id: d.id.trim(),
+    name: d.name.trim(),
+    date: d.date.trim(),
+    pov: sent(d.pov),
+    on_page: d.onPage.filter((p) => p.trim() !== ""),
+    location: sent(d.location),
+    prose: sent(d.prose),
+  };
+}
+
 export function eventPayloadOf(d: EventDraftState): EventDraft {
   return {
     id: d.id.trim(),
@@ -201,6 +259,7 @@ const PREFIX: Record<string, string> = {
   place: "place_",
   thing: "thing_",
   event: "evt_",
+  scene: "scn_",
 };
 
 /**

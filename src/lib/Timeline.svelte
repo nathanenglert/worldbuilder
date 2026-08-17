@@ -1,26 +1,57 @@
 <script lang="ts">
-  import type { WorldEvent } from "./api";
+  import type { StoryScene, WorldEvent } from "./api";
 
   let {
     span,
     day,
     events,
+    scenes,
     changePoints,
     onday,
+    onscene,
   }: {
     span: [number, number];
     day: number;
     events: WorldEvent[];
+    scenes: StoryScene[];
     changePoints: number[];
     onday: (day: number) => void;
+    onscene: (id: string) => void;
   } = $props();
 
   let trackEl: HTMLDivElement;
   let dragging = $state(false);
-  let hovered = $state<WorldEvent | null>(null);
+  let hovered = $state<{ name: string; label: string; at: number } | null>(null);
 
-  const width = $derived(Math.max(1, span[1] - span[0]));
-  const pct = (d: number) => ((d - span[0]) / width) * 100;
+  /**
+   * Whole history, or just the stretch the book covers.
+   *
+   * §12.4's problem, half-solved: four thousand years and a six-week story do not share
+   * an axis usefully. This is a two-position toggle, not the era→century→year→day zoom
+   * that question really wants — but it is the half that makes the scene band readable,
+   * and it costs nothing because every position here is already a percentage of `span`.
+   */
+  let windowed = $state(false);
+
+  const dated = $derived(scenes.filter((s) => s.nominal !== null));
+
+  /** The book's own extent, padded so the first and last scenes are not against the ends. */
+  const storySpan = $derived.by((): [number, number] | null => {
+    if (dated.length === 0) return null;
+    const lo = Math.min(...dated.map((s) => s.earliest ?? s.nominal!));
+    const hi = Math.max(...dated.map((s) => s.latest ?? s.nominal!));
+    const pad = Math.max(1, Math.round((hi - lo) / 10));
+    return [lo - pad, hi + pad];
+  });
+
+  const view = $derived<[number, number]>(windowed && storySpan ? storySpan : span);
+  const width = $derived(Math.max(1, view[1] - view[0]));
+  const pct = (d: number) => ((d - view[0]) / width) * 100;
+
+  /** Off-screen at this zoom, so the band can say how many rather than lie by omission. */
+  const offscreen = $derived(
+    dated.filter((s) => s.nominal! < view[0] || s.nominal! > view[1]).length,
+  );
 
   /** Change points are dense at this zoom; thin them so ticks stay legible. */
   const ticks = $derived(
@@ -30,14 +61,14 @@
   function dayAt(clientX: number): number {
     const rect = trackEl.getBoundingClientRect();
     const t = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    return Math.round(span[0] + t * width);
+    return Math.round(view[0] + t * width);
   }
 
   function pointerdown(e: PointerEvent) {
     // A press on an event marker belongs to the marker. Capturing the pointer here
     // would retarget its click to the track, trading the exact jump to that event
     // for the approximate one that scrubbing gives.
-    if ((e.target as Element).closest(".event")) return;
+    if ((e.target as Element).closest(".event, .scene")) return;
     dragging = true;
     trackEl.setPointerCapture(e.pointerId);
     onday(dayAt(e.clientX));
@@ -57,16 +88,16 @@
     const year = Math.round(width / 200);
     const step = e.shiftKey ? year * 10 : e.altKey ? 1 : year;
     if (e.key === "ArrowLeft") {
-      onday(Math.max(span[0], day - step));
+      onday(Math.max(view[0], day - step));
       e.preventDefault();
     } else if (e.key === "ArrowRight") {
-      onday(Math.min(span[1], day + step));
+      onday(Math.min(view[1], day + step));
       e.preventDefault();
     } else if (e.key === "Home") {
-      onday(span[0]);
+      onday(view[0]);
       e.preventDefault();
     } else if (e.key === "End") {
-      onday(span[1]);
+      onday(view[1]);
       e.preventDefault();
     }
   }
@@ -83,6 +114,18 @@
   <div class="controls">
     <button onclick={() => jump(-1)} title="Previous change">‹ change</button>
     <button onclick={() => jump(1)} title="Next change">change ›</button>
+    {#if storySpan}
+      <button
+        class:on={windowed}
+        onclick={() => (windowed = !windowed)}
+        title={windowed ? "Show the whole of recorded history" : "Clamp the axis to the book"}
+      >
+        <!-- Labelled with what pressing it does, not with what is currently showing.
+             The terrain control can label state because it is a row and the live one is
+             lit; a lone button saying "whole history" reads as an offer, not a status. -->
+        {windowed ? "whole history" : "just the story"}
+      </button>
+    {/if}
   </div>
 
   <div
@@ -91,8 +134,8 @@
     role="slider"
     tabindex="0"
     aria-label="Timeline position"
-    aria-valuemin={span[0]}
-    aria-valuemax={span[1]}
+    aria-valuemin={view[0]}
+    aria-valuemax={view[1]}
     aria-valuenow={day}
     onpointerdown={pointerdown}
     onpointermove={pointermove}
@@ -116,7 +159,7 @@
           style="left:{pct(lo)}%; width:{Math.max(0.35, pct(hi) - pct(lo))}%"
           role="button"
           tabindex="-1"
-          onmouseenter={() => (hovered = e)}
+          onmouseenter={() => (hovered = { name: e.name, label: e.label, at: e.nominal! })}
           onmouseleave={() => (hovered = null)}
           onclick={(ev) => {
             ev.stopPropagation();
@@ -130,6 +173,27 @@
       {/if}
     {/each}
 
+    {#each dated as s (s.id)}
+      <div
+        class="scene"
+        class:offscreen={s.nominal! < view[0] || s.nominal! > view[1]}
+        style="left:{pct(s.nominal!)}%"
+        role="button"
+        tabindex="-1"
+        title="{s.name} · {s.label}"
+        onmouseenter={() => (hovered = { name: s.name, label: s.label, at: s.nominal! })}
+        onmouseleave={() => (hovered = null)}
+        onclick={(ev) => {
+          ev.stopPropagation();
+          onday(s.nominal!);
+          onscene(s.id);
+        }}
+        onkeydown={(ev) => ev.key === "Enter" && onscene(s.id)}
+      >
+        <span class="dot"></span>
+      </div>
+    {/each}
+
     <div class="head" class:dragging style="left:{pct(day)}%">
       <span class="stem"></span>
       <span class="grip"></span>
@@ -137,10 +201,16 @@
   </div>
 
   {#if hovered}
-    <div class="tip" style="left:{pct(hovered.nominal ?? span[0])}%">
+    <div class="tip" style="left:{pct(hovered.at)}%">
       <strong>{hovered.name}</strong>
       <span>{hovered.label}</span>
     </div>
+  {/if}
+
+  <!-- Never silently drop what is off the edge: a band that just looked emptier would
+       read as a book with fewer scenes in it. -->
+  {#if offscreen > 0}
+    <div class="elsewhere">{offscreen} scene{offscreen === 1 ? "" : "s"} outside this window</div>
   {/if}
 </div>
 
@@ -174,6 +244,11 @@
   .controls button:hover {
     color: var(--accent);
     border-color: var(--rule-strong);
+  }
+
+  .controls button.on {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   }
 
   .track {
@@ -240,6 +315,45 @@
 
   .event:hover .pip {
     background: var(--ink);
+  }
+
+  /* Scenes are round; events are diamonds. A scene is a point in the telling, and it
+     carries no doubt bar — the doubt belongs to the date it anchors to, which is already
+     drawn as the event's bar directly above it. */
+  .scene {
+    position: absolute;
+    top: 30px;
+    height: 12px;
+    width: 0;
+    cursor: pointer;
+  }
+
+  .scene .dot {
+    position: absolute;
+    left: -3.5px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--paper);
+    border: 1.5px solid var(--era);
+  }
+
+  .scene:hover .dot {
+    background: var(--era);
+  }
+
+  .scene.offscreen {
+    display: none;
+  }
+
+  .elsewhere {
+    position: absolute;
+    right: 20px;
+    bottom: 4px;
+    font-family: var(--f-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+    color: var(--rule-strong);
   }
 
   .head {

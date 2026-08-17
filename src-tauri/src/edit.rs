@@ -256,6 +256,8 @@ pub fn plan_delete(world: &World, id: &str) -> Result<EditPlan, String> {
         wb_store::paths::entity_path(world, entity)
     } else if let Some(event) = world.events.get(id) {
         wb_store::paths::event_path(world, event)
+    } else if let Some(scene) = world.scenes.get(id) {
+        wb_store::paths::scene_path(world, scene)
     } else {
         return Err(format!("no record `{id}`"));
     };
@@ -287,7 +289,7 @@ fn guard_rename(world: &World, id: &str, exists: bool) -> Result<(), String> {
     if exists {
         return Ok(());
     }
-    if world.entities.contains_key(id) || world.events.contains_key(id) {
+    if world.knows(id) {
         return Err(format!("`{id}` is already taken by another record"));
     }
     Ok(())

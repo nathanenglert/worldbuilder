@@ -20,19 +20,23 @@
   import { untrack } from "svelte";
 
   import { api } from "./api";
-  import type { EditPreview, Finding, WorldSummary } from "./api";
+  import type { EditPreview, Finding, Passage, WorldSummary } from "./api";
   import {
     blankDraft,
     blankEventDraft,
     blankFact,
+    blankSceneDraft,
     deriveId,
     draftOf,
     eventDraftOf,
     eventPayloadOf,
     payloadOf,
     same,
+    sceneDraftOf,
+    scenePayloadOf,
     type Draft,
     type EventDraftState,
+    type SceneDraftState,
   } from "./draft";
   import DateField from "./form/DateField.svelte";
   import FactRow from "./form/FactRow.svelte";
@@ -57,7 +61,7 @@
     onjump,
     onresolveselect,
   }: {
-    target: { kind: "entity" | "event"; id: string | null };
+    target: { kind: "entity" | "event" | "scene"; id: string | null };
     summary: WorldSummary | null;
     geometry: { marker: [number, number] | null; shape: [number, number][] };
     mode: "browse" | "marker" | "shape";
@@ -76,6 +80,10 @@
   let phase = $state<Phase>("loading");
   let draft = $state<Draft | null>(null);
   let eventDraft = $state<EventDraftState | null>(null);
+  let sceneDraft = $state<SceneDraftState | null>(null);
+  /** What the current `prose:` string resolves to, or why it does not. */
+  let passage = $state<{ ok: Passage } | { err: string } | null>(null);
+  let chapters = $state<string[]>([]);
   let pristine = $state<string>("");
   let pristineMarker = $state<[number, number] | null>(null);
   let revision = $state<string | null>(null);
@@ -99,13 +107,24 @@
     void load(t);
   });
 
-  async function load(t: { kind: "entity" | "event"; id: string | null }) {
+  async function load(t: { kind: "entity" | "event" | "scene"; id: string | null }) {
     try {
-      if (t.kind === "event") {
+      if (t.kind === "scene") {
+        const record = t.id ? await api.sceneRecord(t.id) : null;
+        const d = record ? sceneDraftOf(record) : blankSceneDraft();
+        revision = record?.revision ?? null;
+        sceneDraft = d;
+        draft = null;
+        eventDraft = null;
+        pristine = JSON.stringify(d);
+        chapters = await api.chapters();
+        void resolveProse(d.prose);
+      } else if (t.kind === "event") {
         const d = t.id ? eventDraftOf(await api.eventRecord(t.id)) : blankEventDraft();
         revision = t.id ? (await api.eventRecord(t.id)).revision : null;
         eventDraft = d;
         draft = null;
+        sceneDraft = null;
         pristine = JSON.stringify(d);
       } else {
         const record = t.id ? await api.entityRecord(t.id) : null;
@@ -113,6 +132,7 @@
         revision = record?.revision ?? null;
         draft = d;
         eventDraft = null;
+        sceneDraft = null;
         pristine = JSON.stringify(d);
         pristineMarker = d.marker;
         ongeometry({ marker: d.marker, shape: d.shape });
@@ -128,6 +148,7 @@
   // ---- dirty tracking and validation
 
   const current = $derived.by(() => {
+    if (sceneDraft) return JSON.stringify(sceneDraft);
     if (eventDraft) return JSON.stringify(eventDraft);
     if (!draft) return "";
     return JSON.stringify({ ...draft, marker: geometry.marker, shape: geometry.shape });
@@ -169,13 +190,38 @@
     void validate();
   }
 
+  /**
+   * Show what the link points at, the way `DateField` shows what a date expression means.
+   *
+   * Separate from `validate` because it answers a different question and fails for
+   * different reasons: a link that goes nowhere is not a reason to refuse a save. A scene
+   * whose chapter has not been written yet is an ordinary state of a book.
+   */
+  let proseToken = 0;
+  async function resolveProse(link: string) {
+    const mine = ++proseToken;
+    const trimmed = link.trim();
+    if (trimmed === "") {
+      passage = null;
+      return;
+    }
+    try {
+      const p = await api.resolveProse(trimmed);
+      if (mine === proseToken) passage = { ok: p };
+    } catch (e) {
+      if (mine === proseToken) passage = { err: String(e).replace(/^Error:\s*/, "") };
+    }
+  }
+
   async function validate() {
-    if (!draft && !eventDraft) return;
+    if (!draft && !eventDraft && !sceneDraft) return;
     const mine = ++token;
     phase = "validating";
     failure = null;
     try {
-      const result = eventDraft
+      const result = sceneDraft
+        ? await api.previewScene(scenePayloadOf(sceneDraft))
+        : eventDraft
         ? await api.previewEvent(eventPayloadOf(eventDraft))
         : await api.previewEntity(
             payloadOf({ ...draft!, marker: geometry.marker, shape: geometry.shape }, true),
@@ -194,11 +240,13 @@
   // ---- saving
 
   async function save() {
-    if (!draft && !eventDraft) return;
+    if (!draft && !eventDraft && !sceneDraft) return;
     phase = "saving";
     failure = null;
     try {
-      const result = eventDraft
+      const result = sceneDraft
+        ? await api.saveScene(scenePayloadOf(sceneDraft), revision, allowReformat)
+        : eventDraft
         ? await api.saveEvent(eventPayloadOf(eventDraft), revision, allowReformat)
         : await api.saveEntity(
             payloadOf({ ...draft!, marker: geometry.marker, shape: geometry.shape }, true),
@@ -221,7 +269,10 @@
 
   function revert() {
     const back = JSON.parse(pristine);
-    if (eventDraft) {
+    if (sceneDraft) {
+      sceneDraft = back;
+      void resolveProse(back.prose);
+    } else if (eventDraft) {
       eventDraft = back;
     } else {
       draft = back;
@@ -286,6 +337,18 @@
     if (!eventDraft || !creating || eventDraft.idPinned) return;
     const suggested = deriveId(eventDraft.name, "event");
     if (eventDraft.id !== suggested) eventDraft.id = suggested;
+  });
+
+  $effect(() => {
+    if (!sceneDraft || !creating || sceneDraft.idPinned) return;
+    const suggested = deriveId(sceneDraft.name, "scene");
+    if (sceneDraft.id !== suggested) sceneDraft.id = suggested;
+  });
+
+  $effect(() => {
+    if (!sceneDraft || !creating || sceneDraft.idPinned) return;
+    const suggested = deriveId(sceneDraft.name, "scene");
+    if (sceneDraft.id !== suggested) sceneDraft.id = suggested;
   });
 
   /**
@@ -505,6 +568,79 @@
       {/each}
       <button class="add" onclick={() => eventDraft!.participants.push("")}>+ participant</button>
     </div>
+  {:else if sceneDraft}
+    <header>
+      <p class="kind">{creating ? "new scene" : "editing · scene"}</p>
+      <h2>{sceneDraft.name.trim() === "" ? "Untitled" : sceneDraft.name}</h2>
+      <p class="id">{sceneDraft.id || "—"}</p>
+    </header>
+
+    <Field label="name">
+      <TextInput bind:value={sceneDraft.name} onblur={settle} />
+    </Field>
+
+    <IdField bind:value={sceneDraft.id} locked={!creating} taken={ids} />
+
+    <DateField bind:value={sceneDraft.date} label="when it is set" {onjump} onsettled={settle} />
+
+    <Field label="point of view" hint="whose eyes · optional">
+      <RefField bind:value={sceneDraft.pov} {ids} listId="scene-pov" onsettled={settle} />
+    </Field>
+
+    <Field label="where">
+      <RefField bind:value={sceneDraft.location} {ids} listId="scene-location" onsettled={settle} />
+    </Field>
+
+    <!-- The link, with what it resolves to underneath — the same move `DateField` makes
+         for a date expression. A writer learns the grammar by watching it answer. -->
+    <Field label="prose" hint="ch12.md#the-breach · relative to the manuscript root">
+      <SuggestField
+        bind:value={sceneDraft.prose}
+        options={chapters}
+        listId="scene-prose"
+        placeholder="chapter.md#heading"
+        onsettled={() => {
+          void resolveProse(sceneDraft!.prose);
+          settle();
+        }}
+      />
+    </Field>
+
+    {#if passage}
+      {#if "ok" in passage}
+        <p class="resolved">
+          → {passage.ok.file}{passage.ok.heading ? ` · “${passage.ok.heading}”` : ""} · {passage
+            .ok.words} words
+        </p>
+        <!-- The heading is already named on the line above, so the preview starts at the
+             prose. Repeating it would waste the only three lines this gets. -->
+        <p class="quote">
+          {passage.ok.text.replace(/^#{1,6} .*\n+/, "").slice(0, 220).trim()}…
+        </p>
+      {:else}
+        <!-- Not an error state for the form: a chapter that is not written yet is a
+             normal thing for a scene to be pointed at. Save stays reachable. -->
+        <p class="resolved warn">→ {passage.err}</p>
+      {/if}
+    {:else if sceneDraft.prose.trim() === ""}
+      <p class="resolved quiet">→ not linked to any prose yet</p>
+    {/if}
+
+    <p class="label">Who is on the page</p>
+    <div class="facts">
+      {#each sceneDraft.onPage as _, i (i)}
+        <div class="participant">
+          <RefField
+            bind:value={sceneDraft.onPage[i]}
+            {ids}
+            listId="scene-on-page"
+            onsettled={settle}
+          />
+          <button class="drop" onclick={() => sceneDraft!.onPage.splice(i, 1)}>remove</button>
+        </div>
+      {/each}
+      <button class="add" onclick={() => sceneDraft!.onPage.push("")}>+ name</button>
+    </div>
   {/if}
 
   <!-- ---- what this would do -->
@@ -559,7 +695,7 @@
     {/each}
   {/if}
 
-  {#if draft || eventDraft}
+  {#if draft || eventDraft || sceneDraft}
     <div class="actions">
       <button class="save" disabled={!savable || phase === "saving"} onclick={save}>
         {phase === "saving" ? "saving…" : breaksDefinitely ? "Save anyway" : "Save"}
@@ -616,6 +752,31 @@
     text-transform: none;
     letter-spacing: 0;
     color: var(--rule-strong);
+  }
+
+  /* What the link means, in `DateField`'s voice: an answer, not a validation message. */
+  .resolved {
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    color: var(--accent);
+    margin-top: -4px;
+  }
+
+  .resolved.warn {
+    color: var(--warn);
+  }
+
+  .resolved.quiet {
+    color: var(--ink-3);
+  }
+
+  .quote {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--ink-3);
+    padding: 8px 10px;
+    background: var(--surface);
+    border-left: 2px solid var(--rule-strong);
   }
 
   .label {

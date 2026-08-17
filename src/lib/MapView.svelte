@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Entity, Layer, Snapshot, Terrain } from "./api";
+  import type { Entity, Layer, Snapshot, StoryScene, Terrain } from "./api";
   import {
     clamp01,
     dropVertex,
@@ -24,6 +24,10 @@
     onmarker,
     onshape,
     onmodedone,
+    scenes = [],
+    activeScene = null,
+    showStory = false,
+    onscene,
   }: {
     snapshot: Snapshot | null;
     terrain: Terrain | null;
@@ -42,6 +46,17 @@
     onmarker?: (p: Point) => void;
     onshape?: (points: Point[]) => void;
     onmodedone?: () => void;
+    /**
+     * Scenes with a resolvable location, in reading order.
+     *
+     * Their points come from the location's *record* marker, not from the snapshot, so
+     * the book's route does not vanish in stretches where its settings had not been
+     * founded yet — which is most of a prequel.
+     */
+    scenes?: StoryScene[];
+    activeScene?: string | null;
+    showStory?: boolean;
+    onscene?: (id: string) => void;
   } = $props();
 
   // Normalized 0..1 world coordinates scale into this box. The height follows the map
@@ -68,6 +83,31 @@
 
   const regions = $derived((snapshot?.entities ?? []).filter((e) => e.shape.length > 2));
   const markers = $derived((snapshot?.entities ?? []).filter((e) => e.marker !== null));
+
+  /** The route, in reading order. Consecutive scenes in one place collapse to one point. */
+  const path = $derived(
+    scenes
+      .map((s) => s.point!)
+      .filter((p, i, all) => i === 0 || p[0] !== all[i - 1][0] || p[1] !== all[i - 1][1]),
+  );
+
+  /**
+   * One circle per *place* the book visits, not per scene.
+   *
+   * A story returns to the same room, and two scenes at one settlement drew two circles
+   * on the same pixel — the second silently hiding the first, so a book that visited
+   * Marrow twice looked like it visited once. The stop carries every reading position
+   * that happens there instead.
+   */
+  const stops = $derived.by(() => {
+    const out: { point: Point; at: StoryScene[] }[] = [];
+    for (const s of scenes) {
+      const here = out.find((o) => o.point[0] === s.point![0] && o.point[1] === s.point![1]);
+      if (here) here.at.push(s);
+      else out.push({ point: s.point!, at: [s] });
+    }
+    return out;
+  });
   const contested = $derived(regions.filter((r) => r.claims.length > 1));
 
   /**
@@ -545,6 +585,63 @@
       {/each}
     </g>
 
+    <!-- The book's route through the world. Between the entity layer and the draft: over
+         the places it visits, under anything being edited. Note `.entities` dims to .55 in
+         edit mode and a sibling group does not inherit that — which is wanted here, since
+         the path is the thing being looked at while a scene is open. -->
+    {#if showStory && path.length > 1}
+      <g class="story" transform="translate({tx} {ty}) scale({scale})">
+        <polyline
+          points={path.map(([x, y]) => `${x * W},${y * H}`).join(" ")}
+          fill="none"
+          stroke="var(--era)"
+          stroke-width={2 / scale}
+          stroke-opacity="0.55"
+          stroke-dasharray="{6 / scale} {4 / scale}"
+        />
+      </g>
+    {/if}
+
+    {#if showStory}
+      <g class="scenes" transform="translate({tx} {ty}) scale({scale})">
+        {#each stops as stop (stop.at[0].id)}
+          {@const [x, y] = stop.point}
+          {@const here = stop.at.some((s) => s.id === activeScene)}
+          {@const open = stop.at.find((s) => s.id === activeScene) ?? stop.at[0]}
+          {@const label = stop.at.map((s) => s.order + 1).join("·")}
+          <g class="scene" class:active={here}>
+            <circle
+              cx={x * W}
+              cy={y * H}
+              r={(here ? 11 : 8.5) / scale}
+              fill="var(--paper)"
+              stroke={here ? "var(--accent)" : "var(--era)"}
+              stroke-width={1.6 / scale}
+              role="button"
+              tabindex="-1"
+              aria-label={stop.at.map((s) => s.name).join(", ")}
+              onclick={(e) => {
+                e.stopPropagation();
+                if (!panned) onscene?.(open.id);
+              }}
+              onkeydown={(e) => e.key === "Enter" && onscene?.(open.id)}
+            >
+              <title>{stop.at.map((s) => `${s.order + 1}. ${s.name}`).join("\n")}</title>
+            </circle>
+            <!-- Reading position, not date. On a book with a flashback these run out of
+                 chronological order on purpose, and `1·3` means the story comes back. -->
+            <text
+              x={x * W}
+              y={y * H + 3.4 / scale}
+              font-size={(label.length > 3 ? 8 : 9.5) / scale}
+              text-anchor="middle"
+              class="ordinal"
+            >{label}</text>
+          </g>
+        {/each}
+      </g>
+    {/if}
+
     <!-- The record being edited, drawn last so it is never dimmed with the rest. -->
     {#if draft}
       <g class="draft" transform="translate({tx} {ty}) scale({scale})">
@@ -828,6 +925,29 @@
 
   .hud button:hover {
     color: var(--accent);
+  }
+
+  /* Scene circles sit above the places they mark, so they must not swallow a click meant
+     for the region underneath when the story layer is merely being shown. */
+  .story {
+    pointer-events: none;
+  }
+
+  .scenes circle {
+    cursor: pointer;
+  }
+
+  .scenes .ordinal {
+    font-family: var(--f-mono);
+    fill: var(--era);
+    pointer-events: none;
+    paint-order: stroke;
+    stroke: var(--surface);
+    stroke-width: 3px;
+  }
+
+  .scenes .scene.active .ordinal {
+    fill: var(--accent);
   }
 
   .entities.editing {

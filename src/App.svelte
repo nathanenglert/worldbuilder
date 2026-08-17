@@ -6,6 +6,8 @@
     type Finding,
     type ProposalSummary,
     type Snapshot,
+    type Story,
+    type StoryScene,
     type Terrain,
     type WorldEvent,
     type WorldSummary,
@@ -16,6 +18,7 @@
   import Findings from "./lib/Findings.svelte";
   import Proposals from "./lib/Proposals.svelte";
   import Editor from "./lib/Editor.svelte";
+  import StoryPanel from "./lib/StoryPanel.svelte";
 
   let summary = $state<WorldSummary | null>(null);
   let events = $state<WorldEvent[]>([]);
@@ -24,7 +27,9 @@
   let backdrop = $state<string | null>(null);
   let findings = $state<Finding[]>([]);
   let proposals = $state<ProposalSummary[]>([]);
-  let panel = $state<"inspector" | "checks" | "proposals" | "edit">("inspector");
+  let scenes = $state<StoryScene[]>([]);
+  let story = $state<Story | null>(null);
+  let panel = $state<"inspector" | "checks" | "proposals" | "story" | "edit">("inspector");
   let day = $state(0);
   let label = $state("");
   let selected = $state<string | null>(null);
@@ -34,7 +39,7 @@
   let rootPath = $state("");
 
   // ---- authoring
-  let editTarget = $state<{ kind: "entity" | "event"; id: string | null } | null>(null);
+  let editTarget = $state<{ kind: "entity" | "event" | "scene"; id: string | null } | null>(null);
   let editDirty = $state(false);
   let mapMode = $state<"browse" | "marker" | "shape">("browse");
   /**
@@ -51,6 +56,8 @@
   const definiteCount = $derived(findings.filter((f) => f.certainty === "definite").length);
   const openCount = $derived(findings.filter((f) => f.certainty === "possible").length);
   const pendingCount = $derived(proposals.filter((p) => p.status === "pending").length);
+  /** Scenes whose location has a marker — the ones the map can actually draw a path through. */
+  const placedScenes = $derived(scenes.filter((s) => s.point !== null));
 
   // Makes the change-point premise visible: drag across three centuries and the query
   // count barely moves, because the world only changes at a handful of instants.
@@ -114,6 +121,8 @@
       events = await api.timeline();
       findings = await api.checkWorld();
       proposals = await api.listProposals();
+      scenes = await api.scenes();
+      story = await api.story();
       mapQueries = 0;
       scrubSteps = 0;
       selected = null;
@@ -165,6 +174,8 @@
       events = await api.timeline();
       findings = await api.checkWorld();
       proposals = await api.listProposals();
+      scenes = await api.scenes();
+      story = await api.story();
       lastBucket = -1;
       await fetchSnapshot(day);
     } catch (e) {
@@ -176,6 +187,15 @@
   function inspectFinding(finding: Finding) {
     if (finding.at !== null) goto(finding.at);
     selected = finding.related[0] ?? finding.subject;
+  }
+
+  /** Open a scene from the timeline band or the story panel. */
+  function openScene(id: string) {
+    if (panel === "edit" && editDirty && id !== editTarget?.id) {
+      pendingSelect = id;
+      return;
+    }
+    edit("scene", id);
   }
 
   function select(id: string | null) {
@@ -200,7 +220,7 @@
     if (held) panel = "inspector";
   }
 
-  function edit(kind: "entity" | "event", id: string | null) {
+  function edit(kind: "entity" | "event" | "scene", id: string | null) {
     editTarget = { kind, id };
     editGeometry = { marker: null, shape: [] };
     panel = "edit";
@@ -229,6 +249,11 @@
       // Every pending proposal's impact is measured against the current world, so a
       // direct write changes all of their arithmetic.
       proposals = await api.listProposals();
+      // Both, always. A moved marker moves a scene's dot; an edited alias changes what
+      // the prose is found to name; a re-dated event drags every scene anchored to it.
+      // There is no write in this app that provably touches neither.
+      scenes = await api.scenes();
+      story = await api.story();
       lastBucket = -1;
       await fetchSnapshot(day);
       if (markerChanged && terrain) terrain.places = await api.terrainPlaces();
@@ -307,17 +332,44 @@
           {pendingCount} pending
         </button>
 
-        <button class="chip make" onclick={() => edit("entity", null)} title="Write a new record">
-          + record
-        </button>
-        <button class="chip make" onclick={() => edit("event", null)} title="Write a new event">
-          + event
-        </button>
+        {#if story}
+          <button
+            class="chip"
+            class:live={story.standing === "linked"}
+            class:bad={story.standing === "root_missing"}
+            onclick={() => (panel = panel === "story" ? "inspector" : "story")}
+            title="What of this world reaches the page"
+          >
+            {#if story.standing === "linked"}
+              {story.percent}% on the page
+            {:else if story.standing === "root_missing"}
+              manuscript missing
+            {:else}
+              no manuscript
+            {/if}
+          </button>
+        {/if}
+
+        <!-- Grouped so the row breaks between "look at" and "make", never mid-group. -->
+        <span class="group">
+          <button class="chip make" onclick={() => edit("entity", null)} title="Write a new record">
+            + record
+          </button>
+          <button class="chip make" onclick={() => edit("event", null)} title="Write a new event">
+            + event
+          </button>
+          <button class="chip make" onclick={() => edit("scene", null)} title="Write a new scene">
+            + scene
+          </button>
+        </span>
       </div>
 
       <dl class="stats" title="Snapshot queries versus scrub movements">
         <div><dt>entities</dt><dd>{summary.entity_count}</dd></div>
         <div><dt>events</dt><dd>{summary.event_count}</dd></div>
+        {#if summary.scene_count > 0}
+          <div><dt>scenes</dt><dd>{summary.scene_count}</dd></div>
+        {/if}
         <div><dt>changes</dt><dd>{summary.change_points.length}</dd></div>
         <div class="hot"><dt>queries</dt><dd>{mapQueries} <span>/ {scrubSteps}</span></dd></div>
       </dl>
@@ -340,6 +392,10 @@
       onmarker={(p) => (editGeometry = { ...editGeometry, marker: p })}
       onshape={(points) => (editGeometry = { ...editGeometry, shape: points })}
       onmodedone={() => (mapMode = "browse")}
+      scenes={placedScenes}
+      activeScene={panel === "edit" && editTarget?.kind === "scene" ? editTarget.id : null}
+      showStory={panel === "story" || (panel === "edit" && editTarget?.kind === "scene")}
+      onscene={openScene}
     />
     {#if panel === "edit" && editTarget}
       <Editor
@@ -364,6 +420,14 @@
         ondecided={afterDecision}
         onclose={() => (panel = "inspector")}
       />
+    {:else if panel === "story"}
+      <StoryPanel
+        {story}
+        {scenes}
+        onselect={select}
+        onscene={openScene}
+        onclose={() => (panel = "inspector")}
+      />
     {:else}
       <Inspector {snapshot} {terrain} {selected} onselect={select} onedit={edit} />
     {/if}
@@ -372,6 +436,8 @@
   {#if summary}
     <Timeline
       span={summary.span}
+      {scenes}
+      onscene={openScene}
       {day}
       {events}
       changePoints={summary.change_points}
@@ -397,16 +463,32 @@
 
   header {
     display: grid;
-    grid-template-columns: minmax(150px, 1fr) auto minmax(190px, 1fr) auto auto;
+    grid-template-columns: minmax(140px, 1fr) auto minmax(170px, 1fr) auto auto;
     align-items: center;
-    gap: 20px;
+    gap: 14px;
     padding: 14px 20px;
     border-bottom: 1px solid var(--rule);
     background: var(--paper);
   }
 
+  /* Every grid child may shrink. Without this a `1fr` column refuses to go below its
+     content's intrinsic width, and the last thing in the row — the counts — is pushed
+     off the edge rather than the row getting tighter. */
+  header > * {
+    min-width: 0;
+  }
+
+  /* Six chips is more than one row can promise to hold on a narrow window, and a chip
+     silently off the edge is worse than a second row. */
   .chips {
     display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .chips .group {
+    display: flex;
+    flex-wrap: nowrap;
     gap: 6px;
   }
 

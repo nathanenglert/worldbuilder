@@ -933,7 +933,15 @@ async fn omitting_one_end_of_set_existence_does_not_erase_the_other() {
     // see that is that the change still settles the open question rather than opening
     // new ones about a man with no birth date.
     assert_eq!(out["files"][0]["changed_lines"], 1, "{out:#?}");
-    assert_eq!(out["resolves"].as_array().unwrap().len(), 1, "the death date is settled");
+
+    // Two, not one: giving Aldric another year settles both the event record listing him
+    // at a siege he may not have lived to see *and* chapter twelve naming him on the page
+    // there. One edit, one question, and it now reaches the prose as well as the records.
+    let resolved: Vec<&str> =
+        out["resolves"].as_array().unwrap().iter().map(|f| f["rule"].as_str().unwrap()).collect();
+    assert_eq!(resolved.len(), 2, "{out:#?}");
+    assert!(resolved.contains(&"existence-violation"));
+    assert!(resolved.contains(&"scene-contradiction"));
     assert_eq!(out["breaks_something"], false, "{out:#?}");
     assert_eq!(
         out["possible_after"], 0,
