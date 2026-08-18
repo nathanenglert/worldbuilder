@@ -10,6 +10,7 @@
     viewToWorld,
     type Point,
   } from "./geometry";
+  import PillGroup from "./PillGroup.svelte";
 
   export type MapMode = "browse" | "marker" | "shape";
 
@@ -539,7 +540,7 @@
           <path
             d={s.d}
             fill="none"
-            stroke="#4E86A0"
+            class="river"
             stroke-width={s.w / scale}
             stroke-linecap="round"
           />
@@ -784,11 +785,11 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="layers" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       <span class="cap">terrain</span>
-      <div class="pills">
-        {#each LAYERS as l (l.key)}
-          <button class:on={layer === l.key} onclick={() => (kept.layer = l.key)}>{l.label}</button>
-        {/each}
-      </div>
+      <PillGroup
+        options={LAYERS.map((l) => ({ value: l.key, label: l.label }))}
+        value={layer}
+        onpick={(v: string) => (kept.layer = v as Layer)}
+      />
       {#if backdrop}
         <button
           class="wide"
@@ -1025,10 +1026,6 @@
     font-size: 9.5px;
   }
 
-  .pills {
-    display: flex;
-    gap: 2px;
-  }
 
   .layers button {
     font-family: var(--f-mono);
@@ -1091,11 +1088,15 @@
     border: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
   }
 
+  path.river {
+    stroke: var(--river);
+  }
+
   .key i.river {
     width: 16px;
     height: 3px;
     border: 0;
-    background: #4e86a0;
+    background: var(--river);
   }
 
   .ramp {

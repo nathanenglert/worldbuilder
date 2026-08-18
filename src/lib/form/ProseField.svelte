@@ -13,6 +13,7 @@
    * of what is in it, up to the point where it would push the rest of the form off the
    * screen, and past that there is a button.
    */
+  import { takeCaption } from "./caption";
   let {
     value = $bindable(""),
     placeholder = "",
@@ -22,6 +23,8 @@
     placeholder?: string;
     onsettled?: () => void;
   } = $props();
+
+  const id = takeCaption();
 
   /** Roughly ten lines. Beyond this the form's other fields start to disappear upward. */
   const CAP = 210;
@@ -48,7 +51,7 @@
 </script>
 
 <div class="prose">
-  <textarea bind:this={el} bind:value {placeholder} rows="2" onblur={onsettled}></textarea>
+  <textarea {id} bind:this={el} bind:value {placeholder} rows="2" onblur={onsettled}></textarea>
   {#if overflows}
     <button type="button" onclick={() => (full = !full)}>
       {full ? "collapse" : "expand"}

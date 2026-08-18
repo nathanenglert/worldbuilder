@@ -127,7 +127,7 @@
 
 <!-- Focusable so the keyboard has somewhere to land when a panel closes and the
      button that closed it goes with it. App.svelte does the placing. -->
-<aside tabindex="-1">
+<aside class="panel" tabindex="-1">
   <button class="back" onclick={onclose}>‹ back to the world</button>
 
   {#if comparison}
@@ -295,7 +295,7 @@
     {/if}
 
     {#if said}<p class="explain good">{said}</p>{/if}
-    {#if failure}<p class="failure">{failure}</p>{/if}
+    {#if failure}<p class="caution bad">{failure}</p>{/if}
 
     <p class="label">History</p>
     {#if version.unborn}
@@ -420,89 +420,6 @@
 </aside>
 
 <style>
-  aside {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 20px;
-    overflow-y: auto;
-    border-left: 1px solid var(--rule);
-    background: var(--paper);
-  }
-
-  .back {
-    align-self: start;
-    font-family: var(--f-mono);
-    font-size: 10.5px;
-    color: var(--ink-3);
-  }
-
-  .back:hover {
-    color: var(--accent);
-  }
-
-  header {
-    display: grid;
-    gap: 2px;
-    padding-bottom: 4px;
-  }
-
-  h2 {
-    font-size: 19px;
-    font-weight: 600;
-    line-height: 1.2;
-  }
-
-  .kind {
-    font-family: var(--f-mono);
-    font-size: 10.5px;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--ink-3);
-  }
-
-  .id {
-    font-family: var(--f-mono);
-    font-size: 10.5px;
-    color: var(--rule-strong);
-  }
-
-  .label {
-    margin: 8px 0 0;
-    font-family: var(--f-mono);
-    font-size: 10px;
-    letter-spacing: 0.13em;
-    text-transform: uppercase;
-    color: var(--accent);
-  }
-
-  .explain {
-    font-size: 12.5px;
-    line-height: 1.5;
-    color: var(--ink-3);
-  }
-
-  .explain.good {
-    color: var(--accent);
-  }
-
-  code {
-    font-family: var(--f-mono);
-    font-size: 11px;
-    color: var(--ink-2);
-    word-break: break-all;
-  }
-
-  .caution,
-  .failure {
-    padding: 9px 11px;
-    background: var(--surface-2);
-    border-left: 2px solid var(--warn);
-    color: var(--warn);
-    font-size: 12.5px;
-    line-height: 1.5;
-  }
-
   /* Inline in the sentence rather than under it: the offer is part of the sentence. */
   .again {
     font-family: var(--f-mono);
@@ -628,14 +545,21 @@
     border-color: var(--rule-strong);
   }
 
-  .danger {
+  /* Red rather than amber. Throwing four changes away and deleting a what-if are the two
+     controls in this app that lose work nobody can get back, and until now they asked for
+     exactly the same alarm as "two open questions" did.
+
+     `button.danger` rather than `.danger`, to match the specificity of `.acts button`
+     above — which is why "delete" has been rendering in the ordinary grey all along,
+     the one control here whose whole point is that it is not ordinary. */
+  button.danger {
     align-self: start;
-    color: var(--warn);
-    border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 35%, transparent);
   }
 
   .danger:hover:not(:disabled) {
-    border-color: var(--warn);
+    border-color: var(--danger);
   }
 
   button:disabled {

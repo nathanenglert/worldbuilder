@@ -12,9 +12,53 @@
   --accent-soft: #15302a;
   --era: #8ca2d8;
   --warn: #d69b4e;
+  /*
+   * Amber says "read this"; red says "this does not come back".
+   *
+   * They were the same colour, so "throw the changes away" and "two open questions" asked
+   * for the same amount of the writer's alarm — and only one of them destroys work. Kept
+   * to the two controls that actually lose something: the discard prompt and the version
+   * panel's throw-away and delete.
+   */
+  --danger: #c2594c;
+  /* Written out twice, once as an SVG stroke and once as a legend swatch, which is how a
+     legend stops agreeing with the thing it is a legend for. */
+  --river: #4e86a0;
 
   --f-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --f-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /*
+   * Eight steps, taken from what the app had already converged on: the four smallest are
+   * the inside of a control, the four largest the space between things. Roughly a fifth
+   * apart at the bottom and wider at the top, which is how spacing scales read as
+   * deliberate rather than as a list of numbers somebody typed.
+   */
+  --s-1: 2px;
+  --s-2: 3px;
+  --s-3: 4px;
+  --s-4: 6px;
+  --s-5: 8px;
+  --s-6: 10px;
+  --s-7: 14px;
+  --s-8: 20px;
+  /*
+   * Not step zero. A one-pixel grid gap is not a small space — it is a *rule*, drawn by
+   * letting the container's background show between its children, and it must stay one
+   * device pixel however the scale is retuned. Naming it apart is what stops it being
+   * "rounded up" to 2px in some later tidy.
+   */
+  --s-hair: 1px;
+
+  /*
+   * Two sizes of small caps type, and the tracking that goes with each. Uppercase mono
+   * needs the letter-spacing to stay legible; lowercase mono in the same places does not,
+   * so it keeps its own tighter values and is deliberately not tokenised here.
+   */
+  --caps: 10.5px;
+  --caps-sm: 9.5px;
+  --track: 0.1em;
+  --track-wide: 0.13em;
 
   color-scheme: dark;
 }
@@ -58,4 +102,132 @@ button {
 
 ::selection {
   background: var(--accent-soft);
+}
+
+/*
+ * The right-hand column, in one place.
+ *
+ * Seven components render a panel and all seven carried their own copy of this — the same
+ * flex column, the same back button, the same section label, the same amber-ruled note —
+ * which is seven chances to disagree, and they had already taken four of them: three
+ * panels' paragraphs kept the browser's own margin while four zeroed it, and the section
+ * label sat 8px from the thing above it in five panels and 10px in two. None of that was
+ * ever decided; it was copied, and then edited in one place at a time.
+ *
+ * Global rather than a wrapper component because it is a *look*, not a structure. Every
+ * panel's markup is different — that is the interesting part of each of them — and the
+ * only thing they should be made to share is the register they say it in.
+ */
+aside.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-6);
+  padding: var(--s-8);
+  overflow-y: auto;
+  border-left: var(--s-hair) solid var(--rule);
+  background: var(--paper);
+}
+
+/* The way out, at the top of every panel. Padded past its own type so the pointer has
+   something to hit: fourteen pixels of text is a target you have to aim at, and the
+   negative margin gives the space back to the layout so nothing moves. */
+.panel .back {
+  align-self: start;
+  padding: 5px 0;
+  margin: -5px 0;
+  font-family: var(--f-mono);
+  font-size: var(--caps);
+  color: var(--ink-3);
+}
+
+.panel .back:hover {
+  color: var(--accent);
+}
+
+.panel header {
+  display: grid;
+  gap: var(--s-1);
+  padding-bottom: var(--s-3);
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+/* What kind of thing the panel is showing, above its name. */
+.panel .kind {
+  margin: 0;
+  font-family: var(--f-mono);
+  font-size: var(--caps);
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* The machine's name for it, under the writer's. Never uppercased: an id is a string a
+   person will retype, and `PLACE_MARROW` is not what is in the file. */
+.panel .id {
+  margin: 0;
+  font-family: var(--f-mono);
+  font-size: var(--caps);
+  color: var(--rule-strong);
+}
+
+/* A section heading inside a panel. */
+.panel .label {
+  margin: var(--s-5) 0 0;
+  font-family: var(--f-mono);
+  font-size: var(--caps);
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/*
+ * The teaching voice: what this is, why it is empty, what would fill it.
+ *
+ * Quiet on purpose, and the checks panel is why. A possible finding is what a deliberate
+ * mystery looks like from outside, and the sentence explaining that must not itself be
+ * styled as a problem — so this register is "here is how to read what you are looking at",
+ * never "something is wrong".
+ */
+.panel .explain {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+.panel .explain.good {
+  color: var(--accent);
+}
+
+/*
+ * Something the writer should know, with the amber rule carrying the signal and the text
+ * left readable. A paragraph set entirely in amber is harder to read than one beside an
+ * amber rule, and most of these are paragraphs — "existence is uncertain here" is three
+ * lines of explanation, not an alarm.
+ */
+.panel .caution {
+  margin: 0;
+  padding: 9px 11px;
+  background: var(--surface-2);
+  border-left: 2px solid var(--warn);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+/* The exception: something is actually broken rather than merely uncertain. */
+.panel .caution.bad {
+  color: var(--warn);
+}
+
+.panel code {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--ink-2);
 }

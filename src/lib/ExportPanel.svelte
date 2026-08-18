@@ -10,6 +10,7 @@
    */
   import { api, type ExportPreview, type ExportScope } from "./api";
   import DateField from "./form/DateField.svelte";
+  import PillGroup from "./PillGroup.svelte";
 
   let {
     onclose,
@@ -108,7 +109,7 @@
 
 <!-- Focusable so the keyboard has somewhere to land when a panel closes and the
      button that closed it goes with it. App.svelte does the placing. -->
-<aside tabindex="-1">
+<aside class="panel" tabindex="-1">
   <button class="back" onclick={onclose}>‹ back to the world</button>
 
   <header>
@@ -118,11 +119,11 @@
   </header>
 
   <p class="label">How much of it</p>
-  <div class="pills">
-    {#each SCOPES as s (s.key)}
-      <button class:on={scope === s.key} onclick={() => (scope = s.key)}>{s.label}</button>
-    {/each}
-  </div>
+  <PillGroup
+    options={SCOPES.map((s) => ({ value: s.key, label: s.label }))}
+    value={scope}
+    onpick={(v: string) => (scope = v as ExportScope)}
+  />
   <p class="explain">{note}</p>
 
   {#if scope === "as-of"}
@@ -159,7 +160,7 @@
   </div>
 
   {#if wrote}<p class="explain good">Written · {wrote}</p>{/if}
-  {#if failure}<p class="failure">{failure}</p>{/if}
+  {#if failure}<p class="caution bad">{failure}</p>{/if}
 
   <p class="explain">
     The map, the timeline, the type and every record travel inside the file. Open it on a
@@ -172,106 +173,15 @@
 </aside>
 
 <style>
-  aside {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 20px;
-    overflow-y: auto;
-    border-left: 1px solid var(--rule);
-    background: var(--paper);
-  }
-
-  .back {
-    align-self: start;
-    font-family: var(--f-mono);
-    font-size: 10.5px;
-    color: var(--ink-3);
-  }
-
-  .back:hover {
-    color: var(--accent);
-  }
-
-  header {
-    display: grid;
-    gap: 2px;
-    padding-bottom: 4px;
-  }
-
-  h2 {
-    font-size: 19px;
-    font-weight: 600;
-    line-height: 1.2;
-  }
-
-  .kind {
-    font-family: var(--f-mono);
-    font-size: 10.5px;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--ink-3);
-  }
-
-  .id {
-    font-family: var(--f-mono);
-    font-size: 10.5px;
-    color: var(--rule-strong);
-  }
-
-  .label {
-    margin: 8px 0 0;
-    font-family: var(--f-mono);
-    font-size: 10px;
-    letter-spacing: 0.13em;
-    text-transform: uppercase;
-    color: var(--accent);
-  }
-
-  .explain {
-    font-size: 12.5px;
-    line-height: 1.5;
-    color: var(--ink-3);
-  }
-
+  /* Only the part the global does not say: this one carries a filesystem path. */
   .explain.good {
-    color: var(--accent);
     word-break: break-all;
   }
 
-  .failure {
-    padding: 9px 11px;
-    background: var(--surface-2);
-    border-left: 2px solid var(--warn);
-    color: var(--warn);
-    font-size: 12.5px;
-    line-height: 1.5;
-  }
 
-  .pills {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
 
-  .pills button {
-    font-family: var(--f-mono);
-    font-size: 10.5px;
-    color: var(--ink-3);
-    border: 1px solid var(--rule);
-    padding: 4px 9px;
-  }
 
-  .pills button:hover {
-    color: var(--ink);
-    border-color: var(--rule-strong);
-  }
 
-  .pills button.on {
-    color: var(--accent);
-    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-    background: var(--accent-soft);
-  }
 
   dl {
     display: grid;

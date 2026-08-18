@@ -28,6 +28,7 @@
   import VersionPanel from "./lib/VersionPanel.svelte";
   import ExportPanel from "./lib/ExportPanel.svelte";
   import GoTo from "./lib/GoTo.svelte";
+  import PillGroup from "./lib/PillGroup.svelte";
   import {
     existenceWindow,
     idOf,
@@ -1344,14 +1345,17 @@
 
       {#if summary}
         <div class="views">
-          <button class:on={view === "map"} onclick={() => (view = "map")}>map</button>
-          <button
-            class:on={view === "lineage"}
-            onclick={() => {
-              view = "lineage";
-              if (!lineage) void loadLineage();
-            }}>lineage</button
-          >
+          <PillGroup
+            options={[
+              { value: "map", label: "map" },
+              { value: "lineage", label: "lineage" },
+            ]}
+            value={view}
+            onpick={(v: string) => {
+              view = v as "map" | "lineage";
+              if (view === "lineage" && !lineage) void loadLineage();
+            }}
+          />
         </div>
       {/if}
     </div>
@@ -1866,24 +1870,8 @@
     border: 1px solid var(--rule);
   }
 
-  .views button {
-    font-family: var(--f-mono);
-    font-size: 10.5px;
-    letter-spacing: 0.06em;
-    color: var(--ink-3);
-    padding: 3px 9px;
-    border: 1px solid transparent;
-  }
 
-  .views button:hover {
-    color: var(--ink);
-  }
 
-  .views button.on {
-    color: var(--accent);
-    border-color: var(--rule-strong);
-    background: var(--accent-soft);
-  }
 
   /*
    * A form needs more room than a reading panel. Safe with the map because the SVG uses

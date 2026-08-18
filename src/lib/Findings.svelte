@@ -36,7 +36,7 @@
 
 <!-- Focusable so the keyboard has somewhere to land when a panel closes and the
      button that closed it goes with it. App.svelte does the placing. -->
-<aside tabindex="-1">
+<aside class="panel" tabindex="-1">
   <button class="back" onclick={onclose}>‹ back to the world</button>
 
   <header>
@@ -109,74 +109,8 @@
 </aside>
 
 <style>
-  aside {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 20px;
-    overflow-y: auto;
-    border-left: 1px solid var(--rule);
-    background: var(--paper);
-  }
-
-  header {
-    display: grid;
-    gap: 2px;
-    padding-bottom: 4px;
-  }
-
-  h2 {
-    margin: 0;
-    font-size: 19px;
-    font-weight: 600;
-    line-height: 1.2;
-  }
-
-  .kind,
-  .id {
-    margin: 0;
-    font-family: var(--f-mono);
-    font-size: 10.5px;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--ink-3);
-  }
-
-  .id {
-    text-transform: none;
-    letter-spacing: 0;
-    color: var(--rule-strong);
-  }
-
-  .back {
-    align-self: start;
-    font-family: var(--f-mono);
-    font-size: 10.5px;
-    color: var(--ink-3);
-  }
-
-  .back:hover {
-    color: var(--accent);
-  }
-
-  .label {
-    margin: 8px 0 0;
-    font-family: var(--f-mono);
-    font-size: 10px;
-    letter-spacing: 0.13em;
-    text-transform: uppercase;
-    color: var(--accent);
-  }
-
   .label.definite {
     color: var(--warn);
-  }
-
-  .explain {
-    margin: 0;
-    font-size: 12.5px;
-    line-height: 1.5;
-    color: var(--ink-3);
   }
 
   ul {

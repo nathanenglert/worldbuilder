@@ -13,7 +13,7 @@
    */
   import type { ValueKind } from "../api";
   import { danglingRef, inferKind, refPrefixes } from "../draft";
-  import PillGroup from "./PillGroup.svelte";
+  import PillGroup from "../PillGroup.svelte";
   import TextInput from "./TextInput.svelte";
 
   let {

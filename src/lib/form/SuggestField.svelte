@@ -8,6 +8,7 @@
    * to undo that. And the app has no dropdowns anywhere; it has one kind of text box,
    * and this is it with a list attached.
    */
+  import { takeCaption } from "./caption";
   let {
     value = $bindable(""),
     options,
@@ -32,6 +33,8 @@
     onsettled?: () => void;
   } = $props();
 
+  const id = takeCaption();
+
   let el = $state<HTMLInputElement | null>(null);
 
   $effect(() => {
@@ -40,6 +43,7 @@
 </script>
 
 <input
+  {id}
   type="text"
   bind:this={el}
   bind:value

@@ -322,6 +322,29 @@
     transform: rotate(45deg);
   }
 
+  /*
+   * The target, which is not the same thing as the diamond.
+   *
+   * Nine pixels rotated forty-five degrees is a small thing to ask a pointer to find, and
+   * it is the only way to reach an event on the track. The padding-and-negative-margin
+   * trick the rest of the app uses will not work on the pip itself — it has a painted
+   * background, so padding would just draw a bigger diamond — and a pseudo-element on the
+   * pip inherits the rotation, so it would grow diagonally and reach sideways into the
+   * next event. So the target hangs off `.event`, which is not transformed.
+   *
+   * Taller, and no wider than the diamond already was. `.event` has zero width on purpose:
+   * two events a year apart sit three pixels apart on a track spanning four thousand
+   * years, and a wider box would have them stealing each other's clicks.
+   */
+  .event::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    height: 24px;
+    left: -5px;
+    width: 10px;
+  }
+
   .event:hover .pip {
     background: var(--ink);
   }

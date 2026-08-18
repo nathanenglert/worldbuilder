@@ -7,6 +7,7 @@
    * are `onsomething` props, never a dispatcher — `bind:` is about values, and the one
    * input that existed before this already used it.
    */
+  import { takeCaption } from "./caption";
   let {
     value = $bindable(""),
     placeholder = "",
@@ -36,6 +37,9 @@
     oninput?: () => void;
   } = $props();
 
+  /** The `Field` this sits in, if it sits in one, so its caption points here. */
+  const id = takeCaption();
+
   let el = $state<HTMLInputElement | null>(null);
 
   $effect(() => {
@@ -44,6 +48,7 @@
 </script>
 
 <input
+  {id}
   type="text"
   bind:this={el}
   bind:value

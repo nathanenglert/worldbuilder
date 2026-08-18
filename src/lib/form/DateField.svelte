@@ -43,6 +43,13 @@
 
   let day = $state<number | null>(null);
   let reading = $state("");
+  /**
+   * This control renders its own `Field`, which makes it the caption's *parent* rather
+   * than its child — so the id travels down as a prop here instead of through the context
+   * every other control reads it from.
+   */
+  const id = $props.id();
+
   let complaint = $state<string | null>(null);
 
   // Same stale-response guard the header's date box uses: a slow answer for keystroke
@@ -81,11 +88,12 @@
   });
 </script>
 
-<Field {label} {hint} error={error ?? complaint}>
+<Field {label} {hint} error={error ?? complaint} controlId={id}>
   <div class="row">
     <!-- The list is anchors only. A datalist filters as you type, so `@` narrows to
          exactly them, and a plain `0812-04` is untouched by having one attached. -->
     <input
+      {id}
       type="text"
       class="date"
       bind:value

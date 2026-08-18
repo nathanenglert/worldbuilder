@@ -194,7 +194,7 @@
 
 <!-- Focusable so the keyboard has somewhere to land when a panel closes and the
      button that closed it goes with it. App.svelte does the placing. -->
-<aside tabindex="-1">
+<aside class="panel" tabindex="-1">
   {#if entity}
     {@render bar()}
 
@@ -463,54 +463,6 @@
 </aside>
 
 <style>
-  aside {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 20px;
-    overflow-y: auto;
-    border-left: 1px solid var(--rule);
-    background: var(--paper);
-  }
-
-  header {
-    display: grid;
-    gap: 2px;
-    padding-bottom: 6px;
-  }
-
-  h2 {
-    margin: 0;
-    font-size: 19px;
-    font-weight: 600;
-    line-height: 1.2;
-  }
-
-  .kind,
-  .id {
-    margin: 0;
-    font-family: var(--f-mono);
-    font-size: 10.5px;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--ink-3);
-  }
-
-  .id {
-    text-transform: none;
-    letter-spacing: 0;
-    color: var(--rule-strong);
-  }
-
-  .label {
-    margin: 10px 0 0;
-    font-family: var(--f-mono);
-    font-size: 10px;
-    letter-spacing: 0.13em;
-    text-transform: uppercase;
-    color: var(--accent);
-  }
-
   .bar {
     display: flex;
     align-items: center;
@@ -529,26 +481,6 @@
   .edit:hover {
     color: var(--accent);
     border-color: var(--accent);
-  }
-
-  .back {
-    align-self: start;
-    font-family: var(--f-mono);
-    font-size: 10.5px;
-    color: var(--ink-3);
-  }
-
-  .back:hover {
-    color: var(--accent);
-  }
-
-  .caution {
-    margin: 0;
-    padding: 9px 11px;
-    background: var(--surface-2);
-    border-left: 2px solid var(--warn);
-    font-size: 12.5px;
-    color: var(--ink-2);
   }
 
   .claims {
@@ -688,15 +620,6 @@
   .empty {
     margin: 0;
     font-size: 13px;
-    color: var(--ink-3);
-  }
-
-  /* The findings panel's own quiet voice, for the same sentences. A possible finding is
-     what a mystery looks like from outside, and it is not styled as a problem. */
-  .explain {
-    margin: 0;
-    font-size: 12.5px;
-    line-height: 1.5;
     color: var(--ink-3);
   }
 

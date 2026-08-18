@@ -51,7 +51,7 @@
 
 <!-- Focusable so the keyboard has somewhere to land when a panel closes and the
      button that closed it goes with it. App.svelte does the placing. -->
-<aside tabindex="-1">
+<aside class="panel" tabindex="-1">
   {#if openId && detail}
     <button class="back" onclick={() => ((openId = null), (detail = null))}>‹ all proposals</button>
 
@@ -74,7 +74,7 @@
     </ul>
 
     {#if detail.error}
-      <p class="failure">{detail.error}</p>
+      <p class="caution bad">{detail.error}</p>
     {:else}
       <p class="label">If accepted</p>
       {#if detail.resolved.length === 0 && detail.introduced.length === 0}
@@ -113,7 +113,7 @@
     {/if}
 
     {#if failure}
-      <p class="failure">{failure}</p>
+      <p class="caution bad">{failure}</p>
     {/if}
 
     <div class="actions">
@@ -138,7 +138,7 @@
     </header>
 
     {#if failure}
-      <p class="failure">{failure}</p>
+      <p class="caution bad">{failure}</p>
     {/if}
 
     {#if pending.length === 0}
@@ -175,65 +175,6 @@
 </aside>
 
 <style>
-  aside {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 20px;
-    overflow-y: auto;
-    border-left: 1px solid var(--rule);
-    background: var(--paper);
-  }
-
-  header {
-    display: grid;
-    gap: 2px;
-    padding-bottom: 4px;
-  }
-
-  h2 {
-    margin: 0;
-    font-size: 19px;
-    font-weight: 600;
-    line-height: 1.2;
-  }
-
-  .kind,
-  .id {
-    margin: 0;
-    font-family: var(--f-mono);
-    font-size: 10.5px;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--ink-3);
-  }
-
-  .id {
-    text-transform: none;
-    letter-spacing: 0;
-    color: var(--rule-strong);
-  }
-
-  .back {
-    align-self: start;
-    font-family: var(--f-mono);
-    font-size: 10.5px;
-    color: var(--ink-3);
-  }
-
-  .back:hover {
-    color: var(--accent);
-  }
-
-  .label {
-    margin: 8px 0 0;
-    font-family: var(--f-mono);
-    font-size: 10px;
-    letter-spacing: 0.13em;
-    text-transform: uppercase;
-    color: var(--accent);
-  }
-
   .note {
     margin: 0;
     font-size: 12.5px;
@@ -243,25 +184,10 @@
     padding-left: 10px;
   }
 
-  .explain {
-    margin: 0;
-    font-size: 12.5px;
-    line-height: 1.5;
-    color: var(--ink-3);
-  }
-
   .explain.warn {
     color: var(--warn);
   }
 
-  .failure {
-    margin: 0;
-    padding: 8px 10px;
-    background: var(--surface-2);
-    border-left: 2px solid var(--warn);
-    color: var(--warn);
-    font-size: 12px;
-  }
 
   ul {
     margin: 0;

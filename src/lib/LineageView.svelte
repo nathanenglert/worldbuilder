@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Lineage, Life, Succession } from "./api";
+  import PillGroup from "./PillGroup.svelte";
 
   let {
     kept,
@@ -120,16 +121,18 @@
   {:else}
     <div class="picker">
       <span class="cap">showing</span>
-      <button class:on={chosen === "all"} onclick={() => (kept.chosen = "all")}>descent</button>
-      {#each lineage.successions as s (s.key)}
-        <button
-          class:on={chosen === s.key}
-          onclick={() => (kept.chosen = s.key)}
-          title="{s.holders.length} holders · {s.kind}"
-        >
-          {s.label}
-        </button>
-      {/each}
+      <PillGroup
+        options={[
+          { value: "all", label: "descent" },
+          ...lineage.successions.map((s) => ({
+            value: s.key,
+            label: s.label,
+            title: `${s.holders.length} holders · ${s.kind}`,
+          })),
+        ]}
+        value={chosen}
+        onpick={(v) => (kept.chosen = v)}
+      />
     </div>
 
     {#if succession}
@@ -270,7 +273,6 @@
   }
 
   .cap,
-  .picker button,
   .note,
   .legend {
     font-family: var(--f-mono);
@@ -285,23 +287,8 @@
     margin-right: 3px;
   }
 
-  .picker button {
-    color: var(--ink-3);
-    border: 1px solid var(--rule);
-    padding: 3px 8px;
-    white-space: nowrap;
-  }
 
-  .picker button:hover {
-    color: var(--ink);
-    border-color: var(--rule-strong);
-  }
 
-  .picker button.on {
-    color: var(--accent);
-    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-    background: var(--accent-soft);
-  }
 
   .note {
     margin: 0 0 8px;

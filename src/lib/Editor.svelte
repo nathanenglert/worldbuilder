@@ -565,7 +565,7 @@
 
 <!-- Focusable so the keyboard has somewhere to land when a panel closes and the
      button that closed it goes with it. App.svelte does the placing. -->
-<aside tabindex="-1">
+<aside class="panel" tabindex="-1">
   <div class="bar">
     <button class="back" onclick={onclose}>‹ back to the world</button>
     {#if !creating}
@@ -899,7 +899,7 @@
   <!-- ---- what this would do -->
 
   {#if failure}
-    <p class="failure">{failure}</p>
+    <p class="caution bad failure">{failure}</p>
   {/if}
 
   {#if check && !check.preserves_bytes}
@@ -981,45 +981,11 @@
 </aside>
 
 <style>
-  aside {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    /* No bottom padding: the sticky action bar owns it, so it can sit flush against the
-       bottom of the scrollport rather than floating twenty pixels above it. */
-    padding: 20px 20px 0;
-    overflow-y: auto;
-    border-left: 1px solid var(--rule);
-    background: var(--paper);
-  }
-
-  header {
-    display: grid;
-    gap: 2px;
-    padding-bottom: 6px;
-  }
-
-  h2 {
-    margin: 0;
-    font-size: 19px;
-    font-weight: 600;
-    line-height: 1.2;
-  }
-
-  .kind,
-  .id {
-    margin: 0;
-    font-family: var(--f-mono);
-    font-size: 10.5px;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--ink-3);
-  }
-
-  .id {
-    text-transform: none;
-    letter-spacing: 0;
-    color: var(--rule-strong);
+  /* The one thing this panel does not share: the sticky action bar owns the bottom
+     padding, so it can sit flush against the bottom of the scrollport rather than
+     floating twenty pixels above it. */
+  aside.panel {
+    padding-bottom: 0;
   }
 
   /* What the link means, in `DateField`'s voice: an answer, not a validation message. */
@@ -1045,15 +1011,6 @@
     padding: 8px 10px;
     background: var(--surface);
     border-left: 2px solid var(--rule-strong);
-  }
-
-  .label {
-    margin: 10px 0 0;
-    font-family: var(--f-mono);
-    font-size: 10px;
-    letter-spacing: 0.13em;
-    text-transform: uppercase;
-    color: var(--accent);
   }
 
   .bar {
@@ -1083,17 +1040,6 @@
     font-size: 10px;
     color: var(--ink-3);
     font-style: normal;
-  }
-
-  .back {
-    align-self: start;
-    font-family: var(--f-mono);
-    font-size: 10.5px;
-    color: var(--ink-3);
-  }
-
-  .back:hover {
-    color: var(--accent);
   }
 
   .note,
@@ -1187,15 +1133,6 @@
     border: none;
   }
 
-  .caution {
-    margin: 0;
-    padding: 9px 11px;
-    background: var(--surface-2);
-    border-left: 2px solid var(--warn);
-    font-size: 12.5px;
-    color: var(--ink-2);
-  }
-
   .caution p {
     margin: 0 0 6px;
   }
@@ -1211,8 +1148,9 @@
     color: var(--ink-3);
   }
 
+  /* The one button in the form that loses what the writer typed. */
   .confirm .danger:hover {
-    color: var(--warn);
+    color: var(--danger);
   }
 
   .confirm button:hover {
@@ -1355,24 +1293,15 @@
     color: var(--warn);
   }
 
-  .explain {
-    margin: 0;
-    font-size: 12px;
-    color: var(--ink-3);
-  }
-
   .explain.warn {
     color: var(--warn);
   }
 
+  /* The engine's own words rather than this panel's, so they are set in the mono the
+     rest of the engine's words are set in. Everything else comes from `.caution.bad`. */
   .failure {
-    margin: 0;
-    padding: 9px 11px;
-    background: var(--surface-2);
-    border-left: 2px solid var(--warn);
     font-family: var(--f-mono);
     font-size: 11.5px;
-    color: var(--warn);
   }
 
   .empty {
