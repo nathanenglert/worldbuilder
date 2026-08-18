@@ -12,6 +12,9 @@
     placeholder = "",
     mono = false,
     readonly = false,
+    list,
+    warn = false,
+    takeFocus = false,
     onblur,
     oninput,
   }: {
@@ -19,19 +22,37 @@
     placeholder?: string;
     mono?: boolean;
     readonly?: boolean;
+    /** A `<datalist>` id. The list itself belongs to whoever knows what is in it. */
+    list?: string;
+    /**
+     * Reads as wrong without refusing anything — the orange `RefField` puts on an id
+     * nothing answers to. Here because a fact value is *sometimes* an id.
+     */
+    warn?: boolean;
+    /** Set by a caller that put this box on screen for the writer to type in. */
+    takeFocus?: boolean;
     onblur?: () => void;
     /** Typing, specifically — not a programmatic write to `value`, and not a tab through. */
     oninput?: () => void;
   } = $props();
+
+  let el = $state<HTMLInputElement | null>(null);
+
+  $effect(() => {
+    if (takeFocus) el?.focus();
+  });
 </script>
 
 <input
   type="text"
+  bind:this={el}
   bind:value
   {placeholder}
   {readonly}
+  {list}
   class:mono
   class:readonly
+  class:warn
   {onblur}
   oninput={() => oninput?.()}
 />
@@ -55,6 +76,10 @@
   input.readonly {
     color: var(--ink-3);
     background: var(--paper);
+  }
+
+  input.warn {
+    color: var(--warn);
   }
 
   input::placeholder {

@@ -143,11 +143,12 @@ export function eventDraftOf(record: EventRecord): EventDraftState {
   };
 }
 
-export function blankEventDraft(): EventDraftState {
+/** `kind` is carried in by "save & new": a battle is rarely followed by a lone battle. */
+export function blankEventDraft(kind = ""): EventDraftState {
   return {
     id: "",
     name: "",
-    kind: "",
+    kind,
     date: "",
     participants: [],
     location: "",
@@ -264,6 +265,43 @@ export function inferKind(text: string): ValueKind {
   if (/^-?\d+$/.test(t)) return "int";
   if (/^-?\d*\.\d+$/.test(t)) return "float";
   return "text";
+}
+
+/**
+ * The prefixes this world's ids actually use.
+ *
+ * Not a fixed list. `ter_` is in the example world and in none of the primitives, and a
+ * writer's own world will invent others — so the vocabulary is read off the ids that
+ * exist, exactly as `orphan_references` reads it. An id with no underscore contributes
+ * nothing, which is also what the rule does.
+ */
+export function refPrefixes(ids: string[]): Set<string> {
+  const out = new Set<string>();
+  for (const id of ids) {
+    const at = id.indexOf("_");
+    if (at !== -1) out.add(id.slice(0, at));
+  }
+  return out;
+}
+
+/**
+ * Whether a fact value would be read as a reference, and to nothing.
+ *
+ * A fact value is the one box in the form that is *sometimes* an id — `owner` holds
+ * `pol_vashen` and `population` holds `9000` — so the plain "not in the list" test
+ * `RefField` uses would paint every number and every title orange. This mirrors
+ * `orphan_references` in `wb-check` instead, prefix calibration and all: `iron_ore` is a
+ * value because no id in this world starts `iron_`, and `pol_typo` is a dangling
+ * reference because several start `pol_`.
+ *
+ * The mirror is the point. A form that says "this points at nothing" where the checks
+ * panel says nothing at all is worse than a form that stays quiet.
+ */
+export function danglingRef(value: string, known: Set<string>, prefixes: Set<string>): boolean {
+  const v = value.trim();
+  // `Value::as_ref_id`: non-empty, id characters throughout, and at least one underscore.
+  if (v === "" || !/^[A-Za-z0-9_]+$/.test(v) || !v.includes("_")) return false;
+  return prefixes.has(v.slice(0, v.indexOf("_"))) && !known.has(v);
 }
 
 const PREFIX: Record<string, string> = {

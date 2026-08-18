@@ -18,6 +18,8 @@
     fact = $bindable(),
     attrs = [],
     anchors = [],
+    ids = [],
+    names = {},
     sought = false,
     onremove,
     onsplit,
@@ -26,11 +28,17 @@
   }: {
     fact: DraftFact;
     /**
-     * This is the row the form was opened for. Takes the caret and scrolls itself into
+     * This is the row the writer's attention is on — the fact they clicked in the
+     * inspector, or the row they just added. Takes the caret and scrolls itself into
      * view: a record with a dozen facts is longer than the panel, and arriving at the top
      * of it after clicking one fact is arriving in the wrong place.
      */
     sought?: boolean;
+    /**
+     * Every record in the world, for the value box — half of these values are references.
+     */
+    ids?: string[];
+    names?: Record<string, string>;
     /**
      * What this world's facts already call things.
      *
@@ -89,6 +97,9 @@
       bind:value={fact.value}
       bind:kind={fact.kind}
       bind:pinned={fact.pinned}
+      {ids}
+      {names}
+      listId="fact-values"
       {onsettled}
     />
   </Field>

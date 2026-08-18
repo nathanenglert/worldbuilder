@@ -58,15 +58,23 @@
     ongeometry,
     ondirty,
     onsaved,
+    onnew,
     onclose,
     onjump,
     onresolve,
   }: {
     /**
      * `focus` is the attribute the form was opened *at*, when the writer arrived by
-     * clicking a fact rather than an edit button.
+     * clicking a fact rather than an edit button. `type` is what a *new* record starts
+     * out as, which is how "save & new" carries a run of cities forward; it is ignored
+     * when there is an id, because an existing record already knows what it is.
      */
-    target: { kind: "entity" | "event" | "scene"; id: string | null; focus?: string };
+    target: {
+      kind: "entity" | "event" | "scene";
+      id: string | null;
+      focus?: string;
+      type?: string;
+    };
     summary: WorldSummary | null;
     geometry: { marker: [number, number] | null; shape: [number, number][] };
     mode: "browse" | "marker" | "shape";
@@ -82,6 +90,8 @@
     ongeometry: (g: { marker: [number, number] | null; shape: [number, number][] }) => void;
     ondirty: (dirty: boolean) => void;
     onsaved: (summary: WorldSummary, markerChanged: boolean) => void;
+    /** Saved, and start another one like it. The type is the only thing carried over. */
+    onnew: (kind: "entity" | "event" | "scene", type: string) => void;
     onclose: () => void;
     onjump: (day: number) => void;
     onresolve: (discard: boolean) => void;
@@ -102,6 +112,22 @@
   let check = $state<EditPreview | null>(null);
   let failure = $state<string | null>(null);
   let allowReformat = $state(false);
+  /**
+   * The files the last save wrote, or null.
+   *
+   * The one thing the form never said was that it had worked. Save greyed itself out and
+   * that was the whole of it, nine hundred pixels below the fold — so this says which
+   * files landed, which is also the local-first promise stated rather than implied.
+   */
+  let saved = $state<string[] | null>(null);
+  /**
+   * The box the writer should be typing in, as `list:index`.
+   *
+   * One key rather than an index per list, because the rule is the same for all of them:
+   * a row that was just added is a row nobody asked to look at — they asked to *write*
+   * in it, and the caret was still wherever the button was.
+   */
+  let fresh = $state<string | null>(null);
 
   const types = $derived(summary?.types ?? []);
   const records = $derived(summary?.records ?? []);
@@ -124,17 +150,42 @@
   const attrs = $derived((summary?.attrs ?? []).map((a) => a.name));
   const creating = $derived(target.id === null);
   /**
-   * The row the writer clicked, or `-1`.
+   * Which box has the writer's attention, as `list:index`.
    *
-   * The *first* window of that attribute, not the one in force on the scrubbed day: the
-   * form does not know the day, and knowing it would not help — `to: @evt_siege_of_marrow`
-   * is an expression, and resolving six of them to find one row would be a round trip per
-   * fact. Landing on the attribute is what was asked for; the windows sit together.
+   * Two ways to earn it and one answer, because they are the same request: a row just
+   * added, and — for facts — the row the writer clicked in the inspector. That second one
+   * lands on the *first* window of the attribute, not the one in force on the scrubbed
+   * day: the form does not know the day, and knowing it would not help, since
+   * `to: @evt_siege_of_marrow` is an expression and resolving six of them to find one row
+   * would be a round trip per fact. The windows sit together anyway.
    */
-  const sought = $derived(
-    target.focus ? (draft?.facts.findIndex((f) => f.attr === target.focus) ?? -1) : -1,
+  const attention = $derived(
+    fresh ??
+      (target.focus && draft
+        ? `facts:${draft.facts.findIndex((f) => f.attr === target.focus)}`
+        : null),
   );
   const primitive = $derived(types.find((t) => t.name === draft?.type)?.primitive ?? null);
+
+  /**
+   * Add a row and put the caret in it.
+   *
+   * Every one of these lists is a stack of identical boxes, and the button that grows one
+   * is at the bottom of it. Clicking `+ parent` and then having to find the box it made
+   * is the kind of small tax that adds up over a record with six of them.
+   */
+  function add<T>(list: T[], row: T, key: string) {
+    list.push(row);
+    fresh = `${key}:${list.length - 1}`;
+  }
+
+  /**
+   * A slow answer for an early keystroke must not land on a later one — the idiom the
+   * header's date box uses, except that here it also guards the save gate, so anything
+   * that makes the draft different retires the answer that is out for the old one.
+   */
+  let token = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
 
   // ---- loading
 
@@ -142,12 +193,21 @@
     const t = target;
     phase = "loading";
     check = null;
+    // Same retirement as below, for the other way a draft stops existing: a check still
+    // out for the record being left must not answer for the one arriving.
+    token += 1;
     failure = null;
     allowReformat = false;
+    saved = null;
+    fresh = null;
     void load(t);
   });
 
-  async function load(t: { kind: "entity" | "event" | "scene"; id: string | null }) {
+  async function load(t: {
+    kind: "entity" | "event" | "scene";
+    id: string | null;
+    type?: string;
+  }) {
     try {
       if (t.kind === "scene") {
         const record = t.id ? await api.sceneRecord(t.id) : null;
@@ -160,7 +220,7 @@
         chapters = await api.chapters();
         void resolveProse(d.prose);
       } else if (t.kind === "event") {
-        const d = t.id ? eventDraftOf(await api.eventRecord(t.id)) : blankEventDraft();
+        const d = t.id ? eventDraftOf(await api.eventRecord(t.id)) : blankEventDraft(t.type);
         revision = t.id ? (await api.eventRecord(t.id)).revision : null;
         eventDraft = d;
         draft = null;
@@ -168,7 +228,7 @@
         pristine = JSON.stringify(d);
       } else {
         const record = t.id ? await api.entityRecord(t.id) : null;
-        const d = record ? draftOf(record) : blankDraft(types[0]?.name ?? "place");
+        const d = record ? draftOf(record) : blankDraft(t.type || types[0]?.name || "place");
         revision = record?.revision ?? null;
         draft = d;
         eventDraft = null;
@@ -203,21 +263,25 @@
       if (phase === "loading" || phase === "saving") return;
       const dirty = now !== pristine || creating;
       ondirty(dirty);
+      // Whatever answer is in flight was asked about a draft that no longer exists, so
+      // it is retired here rather than left to land. It used to land: a blur starts a
+      // check at once, and typing through the next keystroke left that check to arrive
+      // and set `reviewed` — the one phase that unlocks Save — over a draft it had never
+      // seen. The rule is that the impact is shown before the save, and an impact
+      // computed for the previous keystroke does not satisfy it.
+      token += 1;
+      check = null;
       if (!dirty) {
         phase = "clean";
-        check = null;
         return;
       }
       phase = "dirty";
-      check = null;
+      // The last save is still on disk and still true, but it is no longer what is in
+      // the boxes, and "written · marrow.md" over a changed draft reads as "no need".
+      saved = null;
       schedule();
     });
   });
-
-  // A slow answer for an early keystroke must not land on a later one. Same idiom the
-  // header's date box uses.
-  let token = 0;
-  let timer: ReturnType<typeof setTimeout> | undefined;
 
   function schedule() {
     clearTimeout(timer);
@@ -279,7 +343,13 @@
 
   // ---- saving
 
-  async function save() {
+  /**
+   * `then: "again"` is the "save & new" half: write this, then start another of the same
+   * type. It is a run of records that makes it worth having — five cities in a duchy, or
+   * the four scenes of a chapter — and every one of them used to cost a trip back out to
+   * the header.
+   */
+  async function save(then: "stay" | "again" = "stay") {
     if (!draft && !eventDraft && !sceneDraft) return;
     phase = "saving";
     failure = null;
@@ -298,9 +368,15 @@
       pristine = current;
       pristineMarker = geometry.marker;
       phase = "clean";
+      // The impact preview is written in the conditional — "what this *would* do" — and
+      // it outlived the deed. A diff of a change already on disk is not a preview of
+      // anything; it is the panel describing the past in the future tense.
+      check = null;
+      saved = result.written;
       ondirty(false);
       onmode("browse");
       onsaved(result.summary, markerChanged);
+      if (then === "again") onnew(target.kind, carried());
     } catch (e) {
       failure = String(e).replace(/^Error:\s*/, "");
       phase = "failed";
@@ -417,7 +493,75 @@
   function tagOf(f: Finding): string {
     return f.certainty === "definite" ? "breaks" : "opens";
   }
+
+  /** What a record of this kind is, in the one word "save & new" hands to the next one. */
+  function carried(): string {
+    if (draft) return draft.type;
+    if (eventDraft) return eventDraft.kind;
+    // A scene has no type. The button still earns its place — scenes come in runs.
+    return "";
+  }
+
+  // ---- the bar
+
+  /** What the form is doing, in a word. */
+  const doing = $derived.by(() => {
+    if (phase === "saving") return "saving";
+    if (phase === "dirty" || phase === "validating") return "checking";
+    if (phase === "failed") return "stuck";
+    if (saved) return "saved";
+    if (phase === "clean") return creating ? "unwritten" : "clean";
+    return breaksDefinitely ? "breaks" : "ready";
+  });
+
+  /**
+   * One line for what saving would do, beside the button that would do it.
+   *
+   * The panel has always answered this at length, and it answered it a full screen below
+   * the last field — so the writer scrolled past the form to read the verdict and back up
+   * to keep typing. The long answer stays where it is; this is the same thing said in the
+   * one place a decision gets made.
+   */
+  const verdict = $derived.by(() => {
+    if (phase === "saving") return "writing to disk";
+    if (phase === "dirty" || phase === "validating") return "working out what this would do";
+    if (failure) return failure;
+    if (saved) return saved.join(" · ");
+    if (phase === "clean") {
+      return creating ? "nothing written yet" : "nothing to save · this matches the file";
+    }
+    if (!check) return "";
+    if (!check.preserves_bytes && !allowReformat) {
+      return "saving would reformat the file — allow it above";
+    }
+    const settles = check.resolved.length;
+    const opens = check.introduced.length;
+    if (settles === 0 && opens === 0) return "changes nothing about the world's consistency";
+    const said: string[] = [];
+    if (settles) said.push(`settles ${settles}`);
+    if (opens) said.push(breaksDefinitely ? `breaks ${opens}` : `opens ${opens}`);
+    return said.join(" · ");
+  });
+
+  /**
+   * Cmd/Ctrl-S, which is the one key a writer will try without being told.
+   *
+   * It does not reach through the gate. The rule that save is unreachable until the
+   * impact has been shown is the whole design of this panel, so a press while the check
+   * is still pending brings the check *forward* — the same thing a blur does — and the
+   * next press saves. Two presses, and the writer saw what they were saving.
+   *
+   * `preventDefault` regardless: whatever the webview does with Cmd-S, it is not this.
+   */
+  function hotkey(e: KeyboardEvent) {
+    if (e.key !== "s" || !(e.metaKey || e.ctrlKey)) return;
+    e.preventDefault();
+    if (savable) void save();
+    else if (phase === "dirty" || phase === "validating") settle();
+  }
 </script>
+
+<svelte:window onkeydown={hotkey} />
 
 <aside>
   <div class="bar">
@@ -505,11 +649,15 @@
     <div class="facts">
       {#each draft.aka as _, i (i)}
         <div class="participant">
-          <TextInput bind:value={draft.aka[i]} onblur={settle} />
+          <TextInput
+            bind:value={draft.aka[i]}
+            takeFocus={attention === `aka:${i}`}
+            onblur={settle}
+          />
           <button class="drop" onclick={() => draft!.aka.splice(i, 1)}>remove</button>
         </div>
       {/each}
-      <button class="add" onclick={() => draft!.aka.push("")}>+ another name</button>
+      <button class="add" onclick={() => add(draft!.aka, "", "aka")}>+ another name</button>
     </div>
 
     <div class="two">
@@ -534,12 +682,13 @@
             {ids}
             {names}
             listId="entity-parents"
+            takeFocus={attention === `parents:${i}`}
             onsettled={settle}
           />
           <button class="drop" onclick={() => draft!.parents.splice(i, 1)}>remove</button>
         </div>
       {/each}
-      <button class="add" onclick={() => draft!.parents.push("")}>+ parent</button>
+      <button class="add" onclick={() => add(draft!.parents, "", "parents")}>+ parent</button>
     </div>
 
     <p class="label">Facts here</p>
@@ -549,14 +698,16 @@
           bind:fact={draft.facts[i]}
           {attrs}
           {anchors}
-          sought={i === sought}
+          {ids}
+          {names}
+          sought={attention === `facts:${i}`}
           onremove={() => draft!.facts.splice(i, 1)}
           onsplit={() => split(i)}
           {onjump}
           onsettled={settle}
         />
       {/each}
-      <button class="add" onclick={() => draft!.facts.push(blankFact())}>+ fact</button>
+      <button class="add" onclick={() => add(draft!.facts, blankFact(), "facts")}>+ fact</button>
     </div>
 
     <p class="label">On the map</p>
@@ -645,12 +796,15 @@
             {ids}
             {names}
             listId="event-participants"
+            takeFocus={attention === `participants:${i}`}
             onsettled={settle}
           />
           <button class="drop" onclick={() => eventDraft!.participants.splice(i, 1)}>remove</button>
         </div>
       {/each}
-      <button class="add" onclick={() => eventDraft!.participants.push("")}>+ participant</button>
+      <button class="add" onclick={() => add(eventDraft!.participants, "", "participants")}>
+        + participant
+      </button>
     </div>
   {:else if sceneDraft}
     <header>
@@ -730,12 +884,13 @@
             {ids}
             {names}
             listId="scene-on-page"
+            takeFocus={attention === `onPage:${i}`}
             onsettled={settle}
           />
           <button class="drop" onclick={() => sceneDraft!.onPage.splice(i, 1)}>remove</button>
         </div>
       {/each}
-      <button class="add" onclick={() => sceneDraft!.onPage.push("")}>+ name</button>
+      <button class="add" onclick={() => add(sceneDraft!.onPage, "", "onPage")}>+ name</button>
     </div>
   {/if}
 
@@ -791,22 +946,35 @@
     {/each}
   {/if}
 
+  {#if breaksDefinitely}
+    <p class="explain warn">
+      This adds a contradiction that no reading of the dates rescues. Saving is still
+      allowed — it is your world — but the consistency panel will report it.
+    </p>
+  {/if}
+
   {#if draft || eventDraft || sceneDraft}
+    <!-- Pinned, because the decision it carries is made from wherever the writer happens
+         to be. This form runs to fifteen hundred pixels on a record with six facts, and
+         the save button used to sit nine hundred below the last thing on screen — so the
+         only way to find out whether a change was safe was to leave the field you were
+         typing in. -->
     <div class="actions">
-      <button class="save" disabled={!savable || phase === "saving"} onclick={save}>
+      <button class="save" disabled={!savable || phase === "saving"} onclick={() => save()}>
         {phase === "saving" ? "saving…" : breaksDefinitely ? "Save anyway" : "Save"}
       </button>
-      <button disabled={phase === "clean" || phase === "saving"} onclick={revert}>Revert</button>
-      {#if phase === "dirty" || phase === "validating"}
-        <span class="working">checking…</span>
+      {#if creating}
+        <!-- Only while creating. Coming back to an existing record to change one fact is
+             not the start of a run, and a button that offers to make another Marrow there
+             reads as a mode rather than a shortcut. -->
+        <button disabled={!savable || phase === "saving"} onclick={() => save("again")}>
+          Save &amp; new
+        </button>
       {/if}
+      <button disabled={phase === "clean" || phase === "saving"} onclick={revert}>Revert</button>
+      <span class="doing" class:warn={phase === "failed" || breaksDefinitely}>{doing}</span>
+      <span class="verdict" class:warn={phase === "failed"}>{verdict}</span>
     </div>
-    {#if breaksDefinitely}
-      <p class="explain warn">
-        This adds a contradiction that no reading of the dates rescues. Saving is still
-        allowed — it is your world — but the consistency panel will report it.
-      </p>
-    {/if}
   {/if}
 </aside>
 
@@ -815,7 +983,9 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding: 20px;
+    /* No bottom padding: the sticky action bar owns it, so it can sit flush against the
+       bottom of the scrollport rather than floating twenty pixels above it. */
+    padding: 20px 20px 0;
     overflow-y: auto;
     border-left: 1px solid var(--rule);
     background: var(--paper);
@@ -1124,10 +1294,16 @@
   }
 
   .actions {
+    position: sticky;
+    bottom: 0;
     display: flex;
     align-items: center;
-    gap: 10px;
-    margin-top: 6px;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    margin: 6px -20px 0;
+    padding: 11px 20px 14px;
+    background: var(--paper);
+    border-top: 1px solid var(--rule);
   }
 
   .actions button {
@@ -1154,10 +1330,27 @@
     color: var(--accent);
   }
 
-  .working {
+  /* The phase, in the header's chip voice — one word, read before the sentence. */
+  .doing {
+    font-family: var(--f-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .verdict {
+    flex: 1;
+    min-width: 0;
     font-family: var(--f-mono);
     font-size: 10.5px;
+    line-height: 1.4;
     color: var(--ink-3);
+  }
+
+  .doing.warn,
+  .verdict.warn {
+    color: var(--warn);
   }
 
   .explain {

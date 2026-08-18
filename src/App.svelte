@@ -73,7 +73,12 @@
   let version = $state<{ branch: string | null; dirty: number; kind: string } | null>(null);
 
   // ---- authoring
-  let editTarget = $state<{ kind: EditableKind; id: string | null; focus?: string } | null>(null);
+  let editTarget = $state<{
+    kind: EditableKind;
+    id: string | null;
+    focus?: string;
+    type?: string;
+  } | null>(null);
   let editDirty = $state(false);
   let mapMode = $state<"browse" | "marker" | "shape">("browse");
   /**
@@ -504,8 +509,11 @@
      * `focus` is which attribute the form should open *at*. A fact read in the inspector
      * and the box that would change it are the same fact, and the trip between them was
      * "open the form, then find the row again" down a form that can run past a screen.
+     *
+     * `type` is what a new record starts out as, and is how "save & new" hands a run of
+     * cities forward. The two never travel together: one is about a record that exists.
      */
-    | { act: "edit"; kind: EditableKind; id: string | null; focus?: string }
+    | { act: "edit"; kind: EditableKind; id: string | null; focus?: string; type?: string }
     | { act: "close" }
     | { act: "open"; path: string };
 
@@ -536,10 +544,16 @@
    * `focus` is deliberately not compared. The same record asked for at a different
    * attribute is still the record already open, and reloading it to move the caret would
    * trade a draft for a scroll position.
+   *
+   * A *new* record is never already the case. There is no record to re-open, so asking
+   * for one while a blank form is up means another one — which is what "save & new"
+   * asks for, and what "+ record" over a half-written draft always meant. That one now
+   * goes to the discard prompt like every other way of leaving, rather than to nothing.
    */
   function settled(intent: Intent): boolean {
     return (
       intent.act === "edit" &&
+      intent.id !== null &&
       panel === "edit" &&
       editTarget?.kind === intent.kind &&
       editTarget?.id === intent.id
@@ -590,7 +604,7 @@
     if (panel === "edit") dropForm();
 
     if (intent.act === "edit") {
-      editTarget = { kind: intent.kind, id: intent.id, focus: intent.focus };
+      editTarget = { kind: intent.kind, id: intent.id, focus: intent.focus, type: intent.type };
       if (intent.id) selected = intent.id;
       panel = "edit";
     } else if (intent.act === "open") {
@@ -641,6 +655,10 @@
     intend({ act: "panel", panel: panel === p ? "inspector" : p });
   const openEditor = (kind: EditableKind, id: string | null, focus?: string) =>
     intend({ act: "edit", kind, id, focus });
+
+  /** A blank record of the same type as the one just saved. What "save & new" asks for. */
+  const openLike = (kind: EditableKind, type: string) =>
+    intend({ act: "edit", kind, id: null, type });
   const closePanel = () => intend({ act: "close" });
 
   /** Take the writer to the moment and the record a finding is about. */
@@ -997,6 +1015,7 @@
         ongeometry={(g) => (editGeometry = g)}
         ondirty={(d) => (editDirty = d)}
         onsaved={afterWrite}
+        onnew={openLike}
         onclose={closePanel}
         onjump={jumpTo}
         onresolve={resolveHeld}

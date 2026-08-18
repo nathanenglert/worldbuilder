@@ -12,21 +12,31 @@
     ids,
     names = {},
     listId,
+    takeFocus = false,
     onsettled,
   }: {
     value?: string;
     ids: string[];
     names?: Record<string, string>;
     listId: string;
+    /** Set by a caller that put this box on screen for the writer to type in. */
+    takeFocus?: boolean;
     onsettled?: () => void;
   } = $props();
 
   const known = $derived(ids.includes(value.trim()));
+
+  let el = $state<HTMLInputElement | null>(null);
+
+  $effect(() => {
+    if (takeFocus) el?.focus();
+  });
 </script>
 
 <div class="ref">
   <input
     type="text"
+    bind:this={el}
     bind:value
     list={listId}
     placeholder="an id"
