@@ -3,7 +3,9 @@
   import {
     api,
     inTauri,
+    type Compare,
     type Finding,
+    type Layer,
     type Lineage,
     type ProposalSummary,
     type Reference,
@@ -49,6 +51,19 @@
   type Panel = "inspector" | "checks" | "proposals" | "story" | "version" | "export" | "edit";
   let panel = $state<Panel>("inspector");
   /**
+   * Where closing this panel puts the writer.
+   *
+   * "‹ back to the world" went to the inspector from everywhere, which is right when the
+   * inspector is where you came from and wrong the rest of the time: starting a record
+   * from the checks panel and closing the form left the writer looking at the record they
+   * had just written, with the list they were working down gone. A panel is somewhere you
+   * were passing through, and closing what you opened should leave you where you opened
+   * it from.
+   *
+   * Never `edit`, because leaving the form drops it — there would be nothing to return to.
+   */
+  let lastPanel = $state<Exclude<Panel, "edit">>("inspector");
+  /**
    * The centre pane. Both are projections of the same timeline — one onto the ground,
    * one onto descent — so they share the scrubber underneath rather than the axis.
    */
@@ -89,6 +104,61 @@
     marker: null,
     shape: [],
   });
+
+  // ---- what each view keeps while it is off screen
+  //
+  // The centre pane and the right-hand column are both `{#if}` chains, so leaving a view
+  // destroys it and coming back builds a new one. That is right for everything a view can
+  // work out again for nothing — and these four cannot. A comparison is a revision
+  // materialized out of the object store into a scratch directory with two worlds loaded
+  // and checked against each other; a half-typed save point message is words the writer
+  // wrote; the map's corner is where they had got to after a minute of panning, thrown
+  // away by a single glance at the lineage chart.
+  //
+  // Held here rather than in the components for the reason `editGeometry` is held here:
+  // the thing that outlives a view is the only thing that can keep what the view keeps.
+  // The price is invalidation, which a destroyed component could not have done either —
+  // see `worldMoved`.
+
+  type Kept = {
+    /** Pan, zoom, and which ground is drawn. */
+    map: { scale: number; tx: number; ty: number; layer: Layer; showBackdrop: boolean };
+    /** Which baton the lineage chart is following, or `all` for plain descent. */
+    lineage: { chosen: string };
+    version: {
+      comparison: Compare | null;
+      /** The world moved after this was worked out. It says so rather than disappearing. */
+      stale: boolean;
+      message: string;
+      branch: string;
+      /** The what-if whose actions are showing. */
+      open: string | null;
+    };
+    /** The record whose iceberg detail is expanded. */
+    story: { open: string | null };
+  };
+
+  const blankKept = (): Kept => ({
+    map: { scale: 1, tx: 0, ty: 0, layer: "biome", showBackdrop: false },
+    lineage: { chosen: "all" },
+    version: { comparison: null, stale: false, message: "", branch: "", open: null },
+    story: { open: null },
+  });
+
+  let kept = $state<Kept>(blankKept());
+
+  /**
+   * The world is no longer the one a held comparison was worked out against.
+   *
+   * Nothing here recomputes it. Re-materializing a revision and checking both worlds is
+   * work the writer asked for once, and doing it again behind their back on every save is
+   * not what they asked. The comparison stays where it was and says it is out of date,
+   * which is the difference between a stale number and a lie — and is a question at all
+   * only because it now outlives the panel that worked it out.
+   */
+  function worldMoved() {
+    if (kept.version.comparison) kept.version.stale = true;
+  }
 
   const definiteCount = $derived(findings.filter((f) => f.certainty === "definite").length);
   const openCount = $derived(findings.filter((f) => f.certainty === "possible").length);
@@ -331,7 +401,12 @@
       selected = null;
       // A way back into a world that is no longer open leads nowhere.
       mark = null;
+      // Nor does anything kept about the last one: a comparison against a revision of a
+      // repository we are not in, a baton nothing in this world holds, and — the visible
+      // one — a map panned to a corner of a coastline that is not there any more.
+      kept = blankKept();
       panel = "inspector";
+      lastPanel = "inspector";
 
       const [lo, hi] = summary.span;
       const start = Math.round(lo + (hi - lo) * 0.62);
@@ -382,6 +457,7 @@
       scenes = await api.scenes();
       story = await api.story();
       if (lineage) await loadLineage();
+      worldMoved();
       lastBucket = -1;
       await fetchSnapshot(day);
     } catch (e) {
@@ -408,6 +484,7 @@
       // Every file in the folder was just rewritten; the record the mark named may not
       // be on this branch at all.
       mark = null;
+      worldMoved();
       lastBucket = -1;
       await fetchSnapshot(day);
       terrain = await api.terrain();
@@ -580,12 +657,26 @@
   }
 
 
+  /**
+   * Move the panel, leaving a mark on the one being left.
+   *
+   * Everything that *opens* something goes through here, which is what makes `lastPanel`
+   * worth anything: a route that set `panel` for itself would be a route the way back had
+   * never heard of, which is the failure the one door was written to end. The two that do
+   * not come through are the two that are not openings — a close spends the mark instead
+   * of leaving one, and opening a world resets both.
+   */
+  function show(next: Panel) {
+    if (next !== panel && panel !== "edit") lastPanel = panel;
+    panel = next;
+  }
+
   function carry(intent: Intent) {
     if (intent.act === "select") {
       selected = intent.id;
       if (!intent.show || intent.id === null) return;
       if (panel === "edit") dropForm();
-      panel = "inspector";
+      show("inspector");
       return;
     }
 
@@ -597,7 +688,7 @@
       else jumpTo(intent.day);
       selected = intent.id;
       if (panel === "edit") dropForm();
-      panel = "inspector";
+      show("inspector");
       return;
     }
 
@@ -606,15 +697,23 @@
     if (intent.act === "edit") {
       editTarget = { kind: intent.kind, id: intent.id, focus: intent.focus, type: intent.type };
       if (intent.id) selected = intent.id;
-      panel = "edit";
+      show("edit");
     } else if (intent.act === "open") {
       // Set here rather than left to `open`, which only gets there after the load: a
       // panel that still said "edit" over a form that had just been dropped would be a
       // lie for as long as the world takes to read, and for good if the path is wrong.
-      panel = "inspector";
+      show("inspector");
       void open(intent.path);
+    } else if (intent.act === "close") {
+      // Spent on the way through. A mark that survived being used would make the panel it
+      // returns to its own way back — close the form from the story panel, and the story
+      // panel's own "‹ back to the world" would then do nothing at all, because it would
+      // be asking to go where it already was. Closing walks out, one door at a time.
+      const back = lastPanel;
+      lastPanel = "inspector";
+      panel = back;
     } else {
-      panel = intent.act === "close" ? "inspector" : intent.panel;
+      show(intent.panel);
     }
   }
 
@@ -640,6 +739,49 @@
     editDirty = false;
     carry(intent);
   }
+
+  // ---- where the keyboard goes when a panel closes
+
+  let bodyEl = $state<HTMLDivElement | null>(null);
+  /**
+   * Skipped once. Nothing has been closed at the first render, and an app that grabs the
+   * keyboard on launch is answering a question nobody asked.
+   */
+  let panelSettled = false;
+
+  /**
+   * Put focus back in the panel column when the last thing that had it was destroyed.
+   *
+   * Closing a panel is the one move that reliably drops the keyboard on the floor: the
+   * button that did it was the panel's own "‹ back to the world", so it goes with the
+   * panel and `document.activeElement` falls to `<body>`. From there the next Tab starts
+   * at the top of the window — past the header, past the jump field — which is how a
+   * keyboard writer loses their place for the price of closing something.
+   *
+   * Only when focus was *lost*. Focus that landed somewhere on purpose — the chip that
+   * opened this panel, still on screen and still focused — is not ours to move.
+   */
+  $effect(() => {
+    void panel;
+    if (!panelSettled) {
+      panelSettled = true;
+      return;
+    }
+    // After the effects, not among them, because a panel that means to place the caret
+    // itself has to be allowed to win: the form opening on the fact the writer clicked
+    // focuses that box, and this would otherwise take it straight back. By then focus is
+    // no longer on `<body>` and this does nothing at all.
+    //
+    // A timeout rather than `requestAnimationFrame`, which is the obvious way to write
+    // this and does not work: a window nobody is looking at does not paint, so the frame
+    // never comes and the keyboard stays on the floor until the writer clicks the app.
+    // Worth knowing generally — nothing that must happen can be hung off a frame.
+    const soon = setTimeout(() => {
+      if (document.activeElement !== document.body) return;
+      bodyEl?.querySelector("aside")?.focus({ preventScroll: true });
+    });
+    return () => clearTimeout(soon);
+  });
 
   // ---- what the rest of the app calls
 
@@ -739,6 +881,7 @@
       // date anchor can all move under a save, so it is never safe to keep a stale one.
       if (lineage) await loadLineage();
       void loadVersion();
+      worldMoved();
       lastBucket = -1;
       await fetchSnapshot(day);
       if (markerChanged && terrain) terrain.places = await api.terrainPlaces();
@@ -964,13 +1107,14 @@
     <p class="error">{error}</p>
   {/if}
 
-  <div class="body" class:editing={panel === "edit"}>
+  <div class="body" class:editing={panel === "edit"} bind:this={bodyEl}>
     <div class="stage">
       <!-- Two projections of one timeline: the map onto the ground, the lineage onto
            descent. They swap here rather than sitting side by side, because both want
            the width and both are driven by the same scrubber underneath. -->
       {#if view === "map"}
         <MapView
+          kept={kept.map}
           {snapshot}
           {terrain}
           {backdrop}
@@ -987,7 +1131,7 @@
           onscene={(id) => openEditor("scene", id)}
         />
       {:else}
-        <LineageView {lineage} {day} {selected} onselect={inspect} onday={goto} />
+        <LineageView kept={kept.lineage} {lineage} {day} {selected} onselect={inspect} onday={goto} />
       {/if}
 
       {#if summary}
@@ -1026,6 +1170,7 @@
       <Proposals {proposals} ondecided={afterDecision} onclose={closePanel} />
     {:else if panel === "story"}
       <StoryPanel
+        kept={kept.story}
         {story}
         {scenes}
         {names}
@@ -1035,6 +1180,7 @@
       />
     {:else if panel === "version"}
       <VersionPanel
+        kept={kept.version}
         onchanged={afterBranch}
         onstatus={(v) => (version = { branch: v.branch, dirty: v.dirty.length, kind: v.standing.kind })}
         onselect={pick}

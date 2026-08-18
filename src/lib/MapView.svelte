@@ -14,6 +14,7 @@
   export type MapMode = "browse" | "marker" | "shape";
 
   let {
+    kept,
     snapshot,
     terrain = null,
     backdrop = null,
@@ -29,6 +30,15 @@
     showStory = false,
     onscene,
   }: {
+    /**
+     * Where the map is looking, and what it is drawing — held by the app.
+     *
+     * This view is one arm of an `{#if}`, so a glance at the lineage chart destroyed it
+     * and coming back rebuilt it at 100% showing the whole map. Panning and zooming is a
+     * minute of work and it is *positional*: the writer is not looking at the map, they
+     * are looking at the eastern march, and there was no way to ask for that back.
+     */
+    kept: { scale: number; tx: number; ty: number; layer: Layer; showBackdrop: boolean };
     snapshot: Snapshot | null;
     terrain: Terrain | null;
     backdrop: string | null;
@@ -65,11 +75,15 @@
   const H = $derived(terrain ? Math.round(W / terrain.aspect) : 700);
   const NEUTRAL = "#7b8b84";
 
-  let scale = $state(1);
-  let tx = $state(0);
-  let ty = $state(0);
-  let layer = $state<Layer>("biome");
-  let showBackdrop = $state(false);
+  // Read here, written through `kept`. The drawing divides by `scale` forty-two times —
+  // every stroke width, every dash, every label — and not one of them reads better as
+  // `kept.scale`, so the five names stay exactly what they were and the six places that
+  // *move* the map are the ones that say whose state it is.
+  const scale = $derived(kept.scale);
+  const tx = $derived(kept.tx);
+  const ty = $derived(kept.ty);
+  const layer = $derived(kept.layer);
+  const showBackdrop = $derived(kept.showBackdrop);
 
   let wrapEl: HTMLDivElement;
   let svgEl: SVGSVGElement;
@@ -281,10 +295,14 @@
 
   function zoomAbout(x: number, y: number, factor: number) {
     const next = Math.min(9, Math.max(0.55, scale * factor));
-    // Keep whatever sits under (x, y) pinned there.
-    tx = x - (x - tx) * (next / scale);
-    ty = y - (y - ty) * (next / scale);
-    scale = next;
+    // Keep whatever sits under (x, y) pinned there. Both worked out before either is
+    // written, because `tx` and `ty` now read back through `kept` — an assignment
+    // half-way down would leave the second line dividing by the zoom it just changed.
+    const nx = x - (x - tx) * (next / scale);
+    const ny = y - (y - ty) * (next / scale);
+    kept.scale = next;
+    kept.tx = nx;
+    kept.ty = ny;
   }
 
   function wheel(e: WheelEvent) {
@@ -325,8 +343,8 @@
         captured = true;
       }
     }
-    tx += dx;
-    ty += dy;
+    kept.tx += dx;
+    kept.ty += dy;
     lastX = e.clientX;
     lastY = e.clientY;
   }
@@ -410,16 +428,16 @@
         reset();
         break;
       case "ArrowLeft":
-        tx += step;
+        kept.tx += step;
         break;
       case "ArrowRight":
-        tx -= step;
+        kept.tx -= step;
         break;
       case "ArrowUp":
-        ty += step;
+        kept.ty += step;
         break;
       case "ArrowDown":
-        ty -= step;
+        kept.ty -= step;
         break;
       default:
         return;
@@ -428,9 +446,9 @@
   }
 
   function reset() {
-    scale = 1;
-    tx = 0;
-    ty = 0;
+    kept.scale = 1;
+    kept.tx = 0;
+    kept.ty = 0;
   }
 </script>
 
@@ -768,11 +786,15 @@
       <span class="cap">terrain</span>
       <div class="pills">
         {#each LAYERS as l (l.key)}
-          <button class:on={layer === l.key} onclick={() => (layer = l.key)}>{l.label}</button>
+          <button class:on={layer === l.key} onclick={() => (kept.layer = l.key)}>{l.label}</button>
         {/each}
       </div>
       {#if backdrop}
-        <button class="wide" class:on={showBackdrop} onclick={() => (showBackdrop = !showBackdrop)}>
+        <button
+          class="wide"
+          class:on={showBackdrop}
+          onclick={() => (kept.showBackdrop = !showBackdrop)}
+        >
           imported map
         </button>
       {/if}

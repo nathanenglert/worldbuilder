@@ -49,7 +49,9 @@
   }
 </script>
 
-<aside>
+<!-- Focusable so the keyboard has somewhere to land when a panel closes and the
+     button that closed it goes with it. App.svelte does the placing. -->
+<aside tabindex="-1">
   {#if openId && detail}
     <button class="back" onclick={() => ((openId = null), (detail = null))}>‹ all proposals</button>
 

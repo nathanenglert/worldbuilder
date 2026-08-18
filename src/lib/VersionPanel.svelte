@@ -9,11 +9,36 @@
   } from "./api";
 
   let {
+    kept,
     onchanged,
     onstatus,
     onselect,
     onclose,
   }: {
+    /**
+     * What this panel does not rebuild — held by the app, which outlives it.
+     *
+     * A comparison is not a lookup: the revision is materialized out of the object store
+     * into a scratch directory, both worlds are loaded, and the consistency check is run
+     * over each of them to say what moving there would settle and what it would break.
+     * Clicking a record it names is the reason to have run it, and doing so left the panel
+     * — so coming back meant asking for all of it again to read the next row down.
+     *
+     * The half-typed save point message and the open what-if are the same idea for a
+     * hundredth of the cost: nothing here is the writer's to type twice.
+     *
+     * What is *not* here is the status, the history and the branches. Those are refetched
+     * every time this opens, on purpose: a world edited in the writer's own editor changes
+     * what git says with the app standing still, so a remembered answer would be a stale
+     * one, and the three calls are what makes the panel true when it appears.
+     */
+    kept: {
+      comparison: Compare | null;
+      stale: boolean;
+      message: string;
+      branch: string;
+      open: string | null;
+    };
     /** A branch switch rewrites the world's files, so the app has to refetch everything. */
     onchanged: (summary: WorldSummary) => void;
     /**
@@ -29,19 +54,20 @@
   let version = $state<Version | null>(null);
   let history = $state<History | null>(null);
   let branches = $state<Branch[]>([]);
-  let comparison = $state<Compare | null>(null);
   let busy = $state(false);
   let failure = $state<string | null>(null);
   let said = $state<string | null>(null);
 
-  let message = $state("");
-  let newBranch = $state("");
-  /** Set to a branch name by the first click; the second click is the one that deletes. */
+  /**
+   * The two confirmations stay here, and stay behind. A half-armed "really delete it?"
+   * that survived leaving the panel would be a second click waiting on the other side of
+   * a trip through the world for a decision the writer made minutes ago.
+   */
   let confirmDelete = $state<string | null>(null);
   let confirmDiscard = $state(false);
 
   const readOnly = $derived(version?.standing.kind !== "root");
-  const openRow = $state<{ id: string | null }>({ id: null });
+  const comparison = $derived(kept.comparison);
 
   async function load() {
     failure = null;
@@ -72,11 +98,12 @@
   }
 
   async function compare(rev: string) {
-    comparison = null;
+    kept.comparison = null;
+    kept.stale = false;
     failure = null;
     busy = true;
     try {
-      comparison = await api.versionCompare(rev);
+      kept.comparison = await api.versionCompare(rev);
     } catch (e) {
       failure = String(e);
     } finally {
@@ -98,17 +125,33 @@
   void load();
 </script>
 
-<aside>
+<!-- Focusable so the keyboard has somewhere to land when a panel closes and the
+     button that closed it goes with it. App.svelte does the placing. -->
+<aside tabindex="-1">
   <button class="back" onclick={onclose}>‹ back to the world</button>
 
   {#if comparison}
-    <button class="back" onclick={() => (comparison = null)}> ‹ all versions </button>
+    <button class="back" onclick={() => (kept.comparison = null)}> ‹ all versions </button>
 
     <header>
       <p class="kind">compared against</p>
       <h2>{comparison.rev}</h2>
       <p class="id">{comparison.label}</p>
     </header>
+
+    {#if kept.stale}
+      <!-- The cost of keeping this across a trip out of the panel: the world it was
+           measured against has been written to since. Saying so beats both alternatives —
+           throwing the writer's place away without a word, and quietly showing arithmetic
+           about a world that no longer exists. -->
+      <p class="caution">
+        The world has changed since this was worked out. Every count below is from before
+        that.
+        <button class="again" disabled={busy} onclick={() => compare(comparison.rev)}>
+          work it out again
+        </button>
+      </p>
+    {/if}
 
     {#if comparison.added.length === 0 && comparison.removed.length === 0 && comparison.changed.length === 0}
       <p class="explain">
@@ -211,7 +254,7 @@
       {#if !readOnly}
         <div class="compose">
           <input
-            bind:value={message}
+            bind:value={kept.message}
             placeholder="what changed, in your words"
             spellcheck="false"
             aria-label="Save point message"
@@ -220,8 +263,8 @@
             disabled={busy}
             onclick={() =>
               act(async () => {
-                const c = await api.versionCommit(message);
-                message = "";
+                const c = await api.versionCommit(kept.message);
+                kept.message = "";
                 return `saved as ${c.id}`;
               })}
           >
@@ -286,7 +329,7 @@
       {#each branches as b (b.name)}
         <li>
           <div class="branch" class:here={b.is_head}>
-            <button class="title" onclick={() => (openRow.id = openRow.id === b.name ? null : b.name)}>
+            <button class="title" onclick={() => (kept.open = kept.open === b.name ? null : b.name)}>
               {b.name}
             </button>
             <span class="meta">
@@ -296,7 +339,7 @@
             </span>
           </div>
 
-          {#if openRow.id === b.name}
+          {#if kept.open === b.name}
             <div class="acts">
               <button disabled={busy || b.is_head} onclick={() => compare(b.name)}>compare</button>
               {#if !readOnly}
@@ -349,18 +392,18 @@
     {#if !readOnly}
       <div class="compose">
         <input
-          bind:value={newBranch}
+          bind:value={kept.branch}
           placeholder="what-if/aldric-lived"
           spellcheck="false"
           aria-label="New branch name"
         />
         <button
-          disabled={busy || !newBranch.trim()}
+          disabled={busy || !kept.branch.trim()}
           onclick={() =>
             act(async () => {
-              const name = newBranch.trim();
+              const name = kept.branch.trim();
               onchanged(await api.versionBranch(name, true));
-              newBranch = "";
+              kept.branch = "";
               return `started ${name}, and switched to it`;
             })}
         >
@@ -458,6 +501,20 @@
     color: var(--warn);
     font-size: 12.5px;
     line-height: 1.5;
+  }
+
+  /* Inline in the sentence rather than under it: the offer is part of the sentence. */
+  .again {
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    color: var(--warn);
+    border-bottom: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+    white-space: nowrap;
+  }
+
+  .again:hover:not(:disabled) {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
   }
 
   ul {

@@ -2,6 +2,7 @@
   import type { Story, StoryScene, Surfacing } from "./api";
 
   let {
+    kept,
     story,
     scenes,
     names,
@@ -9,6 +10,12 @@
     onscene,
     onclose,
   }: {
+    /**
+     * Which record is expanded — held by the app, because the two things this panel's
+     * detail offers both destroy the panel. Following a scene chip or opening the record
+     * is the *point* of expanding a row, and coming back closed it again.
+     */
+    kept: { open: string | null };
     story: Story | null;
     scenes: StoryScene[];
     /** Ids to names, for the scenes a record was found in. */
@@ -39,10 +46,12 @@
   const of = (key: Surfacing["standing"]) =>
     (story?.records ?? []).filter((r) => r.standing === key);
 
-  let open = $state<string | null>(null);
+  const open = $derived(kept.open);
 </script>
 
-<aside>
+<!-- Focusable so the keyboard has somewhere to land when a panel closes and the
+     button that closed it goes with it. App.svelte does the placing. -->
+<aside tabindex="-1">
   <button class="back" onclick={onclose}>‹ back to the world</button>
 
   {#if !story}
@@ -110,7 +119,7 @@
               <button
                 class="row record"
                 class:lit={r.mentions > 0}
-                onclick={() => (open = open === r.id ? null : r.id)}
+                onclick={() => (kept.open = open === r.id ? null : r.id)}
               >
                 <span class="name">{r.name}</span>
                 <span class="counts">

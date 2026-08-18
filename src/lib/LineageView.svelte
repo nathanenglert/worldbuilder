@@ -2,12 +2,20 @@
   import type { Lineage, Life, Succession } from "./api";
 
   let {
+    kept,
     lineage,
     day,
     selected,
     onselect,
     onday,
   }: {
+    /**
+     * Which baton is being followed — held by the app, because this view is the other
+     * arm of the same `{#if}` the map is in. Picking a succession is a choice about what
+     * to look at, and flicking to the map to check where a duchy is put it back to plain
+     * descent.
+     */
+    kept: { chosen: string };
     lineage: Lineage | null;
     day: number;
     selected: string | null;
@@ -16,7 +24,7 @@
   } = $props();
 
   /** `all` shows descent; a key shows one baton and only the records that held it. */
-  let chosen = $state<string>("all");
+  const chosen = $derived(kept.chosen);
 
   const succession = $derived<Succession | null>(
     lineage?.successions.find((s) => s.key === chosen) ?? null,
@@ -112,11 +120,11 @@
   {:else}
     <div class="picker">
       <span class="cap">showing</span>
-      <button class:on={chosen === "all"} onclick={() => (chosen = "all")}>descent</button>
+      <button class:on={chosen === "all"} onclick={() => (kept.chosen = "all")}>descent</button>
       {#each lineage.successions as s (s.key)}
         <button
           class:on={chosen === s.key}
-          onclick={() => (chosen = s.key)}
+          onclick={() => (kept.chosen = s.key)}
           title="{s.holders.length} holders · {s.kind}"
         >
           {s.label}
