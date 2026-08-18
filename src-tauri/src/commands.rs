@@ -75,6 +75,18 @@ impl AppState {
         Ok((outcome, summary))
     }
 
+    /// The stamp of the tree on disk right now, without adopting it.
+    ///
+    /// Deliberately not `read`. `read` reloads and takes on whatever it finds, which is
+    /// exactly right for a query and exactly wrong for the question "has anything moved?"
+    /// — asking through `read` would answer its own question, and the frontend would
+    /// never see a change it had not caused. This one looks and does not touch.
+    fn stamp(&self) -> Result<String, String> {
+        let guard = self.world.lock().map_err(|_| "world state is poisoned".to_string())?;
+        let open = guard.as_ref().ok_or_else(|| "no world is open".to_string())?;
+        Ok(wb_store::freshness::fingerprint(&open.world.root).to_string())
+    }
+
     fn open(&self, world: World) -> Result<WorldSummary, String> {
         let mut guard = self.world.lock().map_err(|_| "world state is poisoned".to_string())?;
         let summary = WorldSummary::of(&world);
@@ -573,6 +585,23 @@ pub fn open_world(
     let summary = state.open(world)?;
     remember(&app, &root);
     Ok(summary)
+}
+
+/// A stamp of the world's files as they stand, for noticing that they moved.
+///
+/// The writer's own editor is the other half of this application. They will rename a
+/// place in Obsidian, pull a branch in a terminal, or accept a proposal from an agent,
+/// and until now the app went on showing the counts it had read at launch — a number
+/// that is wrong and looks exactly like a number that is right.
+///
+/// A string rather than a number because it is a `u64` and JSON numbers are doubles:
+/// the low bits of a hash would be quietly rounded off on the way across, and the
+/// comparison would stop noticing small changes for no visible reason. Comparing stamps
+/// only ever happens within one run of the app, which is what makes `DefaultHasher`
+/// — explicitly unstable between releases — fine to hash with.
+#[tauri::command]
+pub fn world_stamp(state: State<'_, AppState>) -> Result<String, String> {
+    state.stamp()
 }
 
 /// Where the bundled example world lives, so a first run has something to open.

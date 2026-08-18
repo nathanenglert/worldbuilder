@@ -23,6 +23,7 @@ pub fn run() {
             commands::example_world_path,
             commands::initial_world,
             commands::recent_worlds,
+            commands::world_stamp,
             commands::snapshot,
             terrain::terrain,
             terrain::map_image,

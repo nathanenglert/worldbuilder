@@ -573,6 +573,12 @@ export const api = {
   initialWorld: () => invoke<string | null>("initial_world"),
   recentWorlds: () => invoke<string[]>("recent_worlds"),
 
+  /**
+   * A stamp of the world's files. Compare two, do not read one — it is an opaque hash,
+   * and it is a string because a `u64` does not survive a JSON number.
+   */
+  worldStamp: () => invoke<string>("world_stamp"),
+
   versionStatus: () => invoke<Version>("version_status"),
   versionHistory: (limit = 30) => invoke<History>("version_history", { limit }),
   versionBranches: () => invoke<Branch[]>("version_branches"),

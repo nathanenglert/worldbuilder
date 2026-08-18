@@ -86,6 +86,14 @@
   let openPath = $state("");
   let recent = $state<string[]>([]);
   let version = $state<{ branch: string | null; dirty: number; kind: string } | null>(null);
+  /**
+   * Version control did not answer.
+   *
+   * The chip used to disappear on a failure, which reads as "this world is not under
+   * version control" — the one thing it is not evidence of. What it is evidence of is
+   * that the app does not know, so the chip stays and says as much.
+   */
+  let versionFailed = $state(false);
 
   // ---- authoring
   let editTarget = $state<{
@@ -159,6 +167,9 @@
   function worldMoved() {
     if (kept.version.comparison) kept.version.stale = true;
   }
+
+  /** The folder being read, by the only name there is before it has been read: its own. */
+  const opened = $derived(rootPath.split("/").filter(Boolean).pop() ?? "a world");
 
   const definiteCount = $derived(findings.filter((f) => f.certainty === "definite").length);
   const openCount = $derived(findings.filter((f) => f.certainty === "possible").length);
@@ -290,8 +301,11 @@
     try {
       const v = await api.versionStatus();
       version = { branch: v.branch, dirty: v.dirty.length, kind: v.standing.kind };
+      versionFailed = false;
     } catch {
-      version = null;
+      // `version` is left standing. What it says is the last thing that was true, which
+      // is worth more than nothing as long as the chip admits that is what it is.
+      versionFailed = true;
     }
   }
 
@@ -304,6 +318,69 @@
     }
   }
 
+  // ---- noticing that the world moved without us
+  //
+  // The writer's own editor is the other half of this application, and so is the agent
+  // holding the MCP server. They will rename a place in Obsidian, pull a branch in a
+  // terminal, or have a proposal accepted from outside — and the header went on showing
+  // the counts it read at launch. A wrong number looks exactly like a right one, and this
+  // one is load-bearing: "2 open questions" is what a writer decides their afternoon on.
+  //
+  // The backend has always had to solve this — every query reloads if the tree moved
+  // (`AppState::read`) — so nothing here is ever *wrong*, only old. This makes the old
+  // visible rather than pretending it is current.
+
+  /** The stamp of the files everything on screen was read from. */
+  let readAt = $state<string | null>(null);
+  /** They have moved since. Nothing on screen is a lie yet; it is out of date. */
+  let stale = $state(false);
+
+  /** Take the world's stamp, and let what is on screen answer for it. */
+  async function markFresh() {
+    try {
+      readAt = await api.worldStamp();
+      stale = false;
+    } catch {
+      // No world, or it went out from under us. Nothing to compare against, so nothing
+      // to claim: the next successful read sets the mark again.
+      readAt = null;
+    }
+  }
+
+  /** There is a world to watch. Kept apart from `summary` so a save does not restart it. */
+  const watching = $derived(!!summary);
+
+  /**
+   * Every few seconds, and only ever a stamp.
+   *
+   * The stamp is a walk of the tree without a parse — the same thing the backend does on
+   * every single query — so this is the cheapest question the app can ask, and it stops
+   * asking the moment the answer is yes. There is no watcher: a filesystem watch across
+   * three platforms, an editor's atomic-rename dance and a network share is a great deal
+   * of machinery to be told something a poll notices within three seconds.
+   */
+  $effect(() => {
+    if (!watching) return;
+    const timer = setInterval(() => {
+      if (stale) return;
+      void api
+        .worldStamp()
+        .then((now) => {
+          if (readAt !== null && now !== readAt) stale = true;
+        })
+        .catch(() => {});
+    }, 3000);
+    return () => clearInterval(timer);
+  });
+
+  /**
+   * The error bar is cleared by whatever the *writer* started — scrubbing, opening,
+   * saving, rereading — and never by a step inside one of those.
+   *
+   * The obvious rule is "clear at the top of every fetch", and it eats its own errors:
+   * a reread whose lineage fetch fails goes on to fetch the snapshot, which clears the
+   * bar on its way past, and the failure the writer needed to see never lands.
+   */
   async function fetchSnapshot(d: number) {
     try {
       snapshot = await api.snapshot(d);
@@ -325,6 +402,7 @@
   }
 
   function goto(d: number) {
+    error = null;
     day = d;
     scrubSteps += 1;
     void refreshLabel(d);
@@ -385,6 +463,42 @@
     busy = true;
     error = null;
     rootPath = path;
+
+    // Emptied before the load, not after it. Opening a world used to leave every derived
+    // view of the *last* one on screen while the new one was read — for a second or two
+    // the header carried the new world's name over the old world's findings, the old
+    // world's chapters and the old world's coastline, which is the single most misleading
+    // state this app can be in. And if the path is wrong it never resolves at all: the
+    // error appears above a world the app is no longer holding.
+    summary = null;
+    events = [];
+    snapshot = null;
+    terrain = null;
+    backdrop = null;
+    findings = [];
+    proposals = [];
+    scenes = [];
+    story = null;
+    lineage = null;
+    version = null;
+    versionFailed = false;
+    readAt = null;
+    stale = false;
+    day = 0;
+    label = "";
+    view = "map";
+    mapQueries = 0;
+    scrubSteps = 0;
+    selected = null;
+    // A way back into a world that is no longer open leads nowhere.
+    mark = null;
+    // Nor does anything kept about the last one: a comparison against a revision of a
+    // repository we are not in, a baton nothing in this world holds, and — the visible
+    // one — a map panned to a corner of a coastline that is not there any more.
+    kept = blankKept();
+    panel = "inspector";
+    lastPanel = "inspector";
+
     try {
       summary = await api.openWorld(path);
       events = await api.timeline();
@@ -392,21 +506,9 @@
       proposals = await api.listProposals();
       scenes = await api.scenes();
       story = await api.story();
-      lineage = null;
-      view = "map";
       recent = await api.recentWorlds();
       void loadVersion();
-      mapQueries = 0;
-      scrubSteps = 0;
-      selected = null;
-      // A way back into a world that is no longer open leads nowhere.
-      mark = null;
-      // Nor does anything kept about the last one: a comparison against a revision of a
-      // repository we are not in, a baton nothing in this world holds, and — the visible
-      // one — a map panned to a corner of a coastline that is not there any more.
-      kept = blankKept();
-      panel = "inspector";
-      lastPanel = "inspector";
+      await markFresh();
 
       const [lo, hi] = summary.span;
       const start = Math.round(lo + (hi - lo) * 0.62);
@@ -417,8 +519,6 @@
       // Terrain last, and awaited separately: it is the one fetch that can take a second,
       // and the timeline is usable long before the ground under it has been drawn. It is
       // also fetched exactly once — nothing in it moves when the scrubber does.
-      terrain = null;
-      backdrop = null;
       terrain = await api.terrain();
       if (terrain) backdrop = await api.mapImage();
     } catch (e) {
@@ -430,13 +530,13 @@
 
   async function jump() {
     const expr = jumpExpr.trim();
+    error = null;
     if (!expr) return;
     try {
       const resolved = await api.resolveExpr(expr);
       if (resolved === null) {
         error = `"${expr}" has no position on the timeline.`;
       } else {
-        error = null;
         jumpTo(resolved);
       }
     } catch (e) {
@@ -445,10 +545,15 @@
   }
 
   /**
-   * A decided proposal may have rewritten files. The backend has already reloaded the
-   * world and returned a fresh summary, so only the derived views need refetching.
+   * Read the whole world again.
+   *
+   * Written for a decided proposal, which may have rewritten any file — the backend has
+   * already reloaded, so this is only the derived views catching up. It is now also what
+   * the writer presses when the files moved underneath them, which is the same job asked
+   * by a different party, and one refetch is easier to keep honest than two.
    */
-  async function afterDecision() {
+  async function refresh() {
+    error = null;
     try {
       summary = await api.openWorld(rootPath);
       events = await api.timeline();
@@ -457,9 +562,11 @@
       scenes = await api.scenes();
       story = await api.story();
       if (lineage) await loadLineage();
+      void loadVersion();
       worldMoved();
       lastBucket = -1;
       await fetchSnapshot(day);
+      await markFresh();
     } catch (e) {
       error = String(e);
     }
@@ -472,6 +579,7 @@
    */
   async function afterBranch(next: WorldSummary) {
     summary = next;
+    error = null;
     try {
       events = await api.timeline();
       findings = await api.checkWorld();
@@ -489,6 +597,7 @@
       await fetchSnapshot(day);
       terrain = await api.terrain();
       if (terrain) backdrop = await api.mapImage();
+      await markFresh();
     } catch (e) {
       error = String(e);
     }
@@ -865,6 +974,7 @@
    * itself has not changed.
    */
   async function afterWrite(next: WorldSummary, markerChanged: boolean) {
+    error = null;
     try {
       summary = next;
       events = await api.timeline();
@@ -885,6 +995,9 @@
       lastBucket = -1;
       await fetchSnapshot(day);
       if (markerChanged && terrain) terrain.places = await api.terrainPlaces();
+      // Our own write moved the files, so the mark moves with it. Without this every save
+      // would raise the "the files moved" flag against the writer who just saved.
+      await markFresh();
     } catch (e) {
       error = String(e);
     }
@@ -916,13 +1029,46 @@
         <button class="open" onclick={() => (opening = !opening)} title="Open another world folder">
           {opening ? "cancel" : "open…"}
         </button>
+        <!-- Beside "open…" rather than out among the counts. Both are operations on the
+             world as a folder of files rather than on anything inside it, and publish had
+             been sitting in the row of things you make, which it is not one of. -->
+        {#if summary}
+          <button
+            class="open"
+            aria-pressed={panel === "export"}
+            onclick={() => toggle("export")}
+            title="Write this world out as one file">publish…</button
+          >
+        {/if}
       </p>
       <h1>{summary?.name ?? "No world open"}</h1>
     </div>
 
     <div class="readout">
-      <p class="date">{label || "—"}</p>
-      <p class="daynum">day {day.toLocaleString()}</p>
+      <div class="when">
+        <p class="date">{label || "—"}</p>
+        <p class="daynum">day {day.toLocaleString()}</p>
+      </div>
+
+      <!-- The one thing in this header that is a *problem*, at the one size nothing else
+           in the header is. It is here and not in the chip row because a header of eleven
+           equal-weight controls has no answer to "what should I look at first", and this
+           is the answer whenever there is one: a definite finding is the world contradicting
+           itself, and it is worth more of the writer's attention than the scene count.
+
+           When there are none, nothing is sized to be read first, which is also correct. -->
+      {#if definiteCount > 0}
+        <button
+          class="broken"
+          class:stale
+          aria-pressed={panel === "checks"}
+          onclick={() => toggle("checks")}
+          title="Contradictions this world cannot be right about"
+        >
+          <span class="count">{definiteCount}</span>
+          <span class="cap">definite</span>
+        </button>
+      {/if}
     </div>
 
     <form
@@ -960,15 +1106,34 @@
           </button>
         {/if}
 
+        <!-- Only when the files moved. It is not a status light that is usually green:
+             a control that is nearly always in one state teaches the eye to stop seeing
+             it, and this one has something to say on the few occasions it appears. -->
+        {#if stale}
+          <button
+            class="chip moved"
+            onclick={() => void refresh()}
+            title="The world folder changed outside this window — read it again"
+          >
+            ↻ the files moved
+          </button>
+        {/if}
+
         <button
           class="chip"
+          class:on={panel === "checks"}
+          class:stale
           class:bad={definiteCount > 0}
           class:note={definiteCount === 0 && openCount > 0}
+          aria-pressed={panel === "checks"}
           onclick={() => toggle("checks")}
           title="Deterministic consistency rules"
         >
+          <!-- No count when there are definite findings: the readout above is carrying
+               that number at four times the size, and saying it twice in one header is
+               how a header stops being read. -->
           {#if definiteCount > 0}
-            {definiteCount} definite
+            checks
           {:else if openCount > 0}
             {openCount} open question{openCount === 1 ? "" : "s"}
           {:else}
@@ -978,7 +1143,10 @@
 
         <button
           class="chip"
+          class:on={panel === "proposals"}
+          class:stale
           class:live={pendingCount > 0}
+          aria-pressed={panel === "proposals"}
           onclick={() => toggle("proposals")}
           title="Changes awaiting review"
         >
@@ -988,8 +1156,11 @@
         {#if story}
           <button
             class="chip"
+            class:on={panel === "story"}
+            class:stale
             class:live={story.standing === "linked"}
             class:bad={story.standing === "root_missing"}
+            aria-pressed={panel === "story"}
             onclick={() => toggle("story")}
             title="What of this world reaches the page"
           >
@@ -1003,17 +1174,23 @@
           </button>
         {/if}
 
-        {#if version && version.kind !== "none"}
+        {#if versionFailed || (version && version.kind !== "none")}
           <button
             class="chip"
-            class:live={version.dirty === 0}
-            class:note={version.dirty > 0}
+            class:on={panel === "version"}
+            class:off={versionFailed}
+            class:stale
+            class:live={!versionFailed && version?.dirty === 0}
+            class:note={!versionFailed && (version?.dirty ?? 0) > 0}
+            aria-pressed={panel === "version"}
             onclick={() => toggle("version")}
-            title="Save points and what-ifs"
+            title={versionFailed
+              ? "Version control did not answer just now — this is the last thing it said"
+              : "Save points and what-ifs"}
           >
-            {#if version.dirty > 0}
+            {#if version && version.dirty > 0}
               {version.dirty} to save
-            {:else if version.branch}
+            {:else if version?.branch}
               on {version.branch}
             {:else}
               versions
@@ -1044,24 +1221,43 @@
           >
             + scene
           </button>
-          <button
-            class="chip make"
-            onclick={() => toggle("export")}
-            title="Write this world out as one file"
-          >
-            ⤓ publish
-          </button>
         </span>
       </div>
 
-      <dl class="stats" title="Snapshot queries versus scrub movements">
-        <div><dt>entities</dt><dd>{summary.entity_count}</dd></div>
-        <div><dt>events</dt><dd>{summary.event_count}</dd></div>
+      <!-- One title each. The whole block used to carry a single tooltip about the last
+           stat in it, so the four counts a writer would actually wonder about explained
+           nothing, and the one that did was explained by hovering somewhere else. -->
+      <dl class="stats" class:stale>
+        <div title="Records with a lifespan: people, places, polities, things">
+          <dt>entities</dt>
+          <dd>{summary.entity_count}</dd>
+        </div>
+        <div title="Dated happenings, which is what everything else hangs its dates off">
+          <dt>events</dt>
+          <dd>{summary.event_count}</dd>
+        </div>
         {#if summary.scene_count > 0}
-          <div><dt>scenes</dt><dd>{summary.scene_count}</dd></div>
+          <div title="Chapters of the book placed in the world, in reading order">
+            <dt>scenes</dt>
+            <dd>{summary.scene_count}</dd>
+          </div>
         {/if}
-        <div><dt>changes</dt><dd>{summary.change_points.length}</dd></div>
-        <div class="hot"><dt>queries</dt><dd>{mapQueries} <span>/ {scrubSteps}</span></dd></div>
+        <!-- Not "changes". These are the only instants at which this world is different
+             from the instant before, which is why dragging across three centuries costs a
+             handful of queries and not three centuries of them. -->
+        <div title="Days on which anything about this world changes — the whole timeline is flat between them">
+          <dt>turning points</dt>
+          <dd>{summary.change_points.length}</dd>
+        </div>
+        <!-- The change-point premise with its workings shown: snapshots actually fetched
+             against scrubber movements. It is a claim about the engine being demonstrated
+             live, which belongs in front of whoever is building it and nobody else. -->
+        {#if import.meta.env.DEV}
+          <div class="hot" title="Snapshots fetched / scrub movements — dev builds only">
+            <dt>queries</dt>
+            <dd>{mapQueries} <span>/ {scrubSteps}</span></dd>
+          </div>
+        {/if}
       </dl>
     {/if}
   </header>
@@ -1104,7 +1300,13 @@
   {/if}
 
   {#if error}
-    <p class="error">{error}</p>
+    <!-- Dismissable, because an error bar with no way out is furniture. Most of these
+         clear themselves on the next fetch; the ones that do not are the ones the writer
+         has read, understood and would like to stop looking at. -->
+    <p class="error">
+      <span>{error}</span>
+      <button onclick={() => (error = null)} title="Dismiss">×</button>
+    </p>
   {/if}
 
   <div class="body" class:editing={panel === "edit"} bind:this={bodyEl}>
@@ -1132,6 +1334,12 @@
         />
       {:else}
         <LineageView kept={kept.lineage} {lineage} {day} {selected} onselect={inspect} onday={goto} />
+      {/if}
+
+      <!-- Over the stage rather than in place of it: the map is where the writer is
+           looking, so that is where "this is going to take a moment" belongs. -->
+      {#if busy}
+        <div class="opening">Opening {opened}…</div>
       {/if}
 
       {#if summary}
@@ -1167,7 +1375,7 @@
     {:else if panel === "checks"}
       <Findings {findings} {names} onjump={inspectFinding} onselect={visit} onclose={closePanel} />
     {:else if panel === "proposals"}
-      <Proposals {proposals} ondecided={afterDecision} onclose={closePanel} />
+      <Proposals {proposals} ondecided={refresh} onclose={closePanel} />
     {:else if panel === "story"}
       <StoryPanel
         kept={kept.story}
@@ -1309,15 +1517,47 @@
     border-color: var(--rule-strong);
   }
 
-  /* The only creative actions in a header full of counts, so they read as one. */
+  /* The only creative actions in a header full of counts, so they read as one — and
+     filled rather than outlined, because everything else in this row is a *reading* and
+     these three are the only things you can press to make something exist. Small enough
+     at 10.5px that three of them do not compete with the one element sized to be read
+     first. */
   .chip.make {
-    color: var(--accent);
-    border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+    background: var(--accent);
+    color: var(--paper);
+    border-color: var(--accent);
+  }
+
+  .chip.make:hover {
+    background: color-mix(in srgb, var(--accent) 82%, var(--paper));
+    border-color: color-mix(in srgb, var(--accent) 82%, var(--paper));
+    color: var(--paper);
   }
 
   .chip:hover {
     border-color: var(--rule-strong);
     color: var(--ink-2);
+  }
+
+  /* The same treatment the map/lineage toggle uses, because it answers the same question:
+     which of these is showing. Deliberately background and border only — the text colour
+     stays whatever the count means, so a chip does not stop being red for the duration of
+     the panel that would tell you why it is red. */
+  .chip.on {
+    background: var(--accent-soft);
+    border-color: var(--rule-strong);
+  }
+
+  .chip.moved {
+    color: var(--era);
+    border-color: color-mix(in srgb, var(--era) 45%, transparent);
+    text-transform: none;
+    letter-spacing: 0.04em;
+  }
+
+  .chip.moved:hover {
+    color: var(--accent);
+    border-color: var(--accent);
   }
 
   .chip.note {
@@ -1335,6 +1575,28 @@
     border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   }
 
+  /* Last of the chip rules, and that is the whole point: staleness outranks every state
+     a chip can be in, because the state is exactly what is no longer known. An amber
+     "2 open questions" that may now be four is a worse thing to show than a grey one
+     admitting it has not looked since the files changed. */
+  .chip.stale,
+  .stats.stale div:not(.hot) dd,
+  .broken.stale .count {
+    color: var(--rule-strong);
+  }
+  /* `.hot` is excluded on purpose: the query counter is a reading of what this session
+     did, and the files moving on disk does not make it any less true. */
+
+  .chip.stale {
+    border-style: dashed;
+  }
+
+  /* Version control did not answer. Not hidden, not alarming: unknown. */
+  .chip.off {
+    color: var(--rule-strong);
+    border-style: dotted;
+  }
+
   .eyebrow {
     margin: 0;
     font-family: var(--f-mono);
@@ -1344,9 +1606,12 @@
     color: var(--accent);
   }
 
+  /* Down from 17px, and on purpose. The world's name is the one thing in this header the
+     writer already knows — they chose the folder — so it does not need to be the largest
+     thing on the screen, and while it was, nothing else could be. */
   h1 {
     margin: 0;
-    font-size: 17px;
+    font-size: 15px;
     font-weight: 600;
     letter-spacing: -0.01em;
     white-space: nowrap;
@@ -1355,6 +1620,13 @@
   }
 
   .readout {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+  }
+
+  .when {
     text-align: center;
   }
 
@@ -1363,6 +1635,37 @@
     font-size: 15px;
     font-weight: 600;
     white-space: nowrap;
+  }
+
+  /* The one element in the header sized to be read first, and only ever present when
+     there is something to read first about. */
+  .broken {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 2px 9px 3px;
+    border-left: 2px solid var(--warn);
+    background: color-mix(in srgb, var(--warn) 9%, transparent);
+  }
+
+  .broken .count {
+    font-size: 17px;
+    font-weight: 600;
+    line-height: 1.1;
+    color: var(--warn);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .broken .cap {
+    font-family: var(--f-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--warn) 75%, var(--ink-3));
+  }
+
+  .broken:hover {
+    background: color-mix(in srgb, var(--warn) 16%, transparent);
   }
 
   .daynum,
@@ -1445,7 +1748,8 @@
     color: var(--rule-strong);
   }
 
-  .eyebrow .open:hover {
+  .eyebrow .open:hover,
+  .eyebrow .open[aria-pressed="true"] {
     color: var(--accent);
   }
 
@@ -1494,12 +1798,31 @@
   }
 
   .error {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
     margin: 0;
     padding: 8px 20px;
     background: var(--surface-2);
     border-bottom: 1px solid var(--warn);
     color: var(--warn);
     font-size: 12.5px;
+  }
+
+  .error span {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .error button {
+    font-family: var(--f-mono);
+    font-size: 14px;
+    line-height: 1;
+    color: color-mix(in srgb, var(--warn) 65%, transparent);
+  }
+
+  .error button:hover {
+    color: var(--warn);
   }
 
   .body {
@@ -1514,6 +1837,20 @@
     min-width: 0;
     min-height: 0;
     display: grid;
+  }
+
+  .opening {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: grid;
+    place-items: center;
+    background: color-mix(in srgb, var(--paper) 72%, transparent);
+    font-family: var(--f-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
   }
 
   /* Top-right of the stage: the only corner the map does not already use. Layers are

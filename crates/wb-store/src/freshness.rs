@@ -127,4 +127,46 @@ mod tests {
         let stamp = fingerprint(Path::new("/no/such/world"));
         assert_eq!(stamp, fingerprint(Path::new("/no/such/world")), "and it is stable");
     }
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("wb-store-{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("entities")).expect("scratch world");
+        std::fs::write(dir.join("world.yaml"), "name: Scratch\n").expect("world.yaml");
+        std::fs::write(dir.join("entities/one.md"), "id: act_one\n").expect("a record");
+        dir
+    }
+
+    /// The property the app's staleness poll rests on. It is asserted here rather than
+    /// assumed there: a stamp that did not move when a record did would leave the writer
+    /// looking at counts from before they edited the file, with nothing saying so.
+    #[test]
+    fn a_record_edited_underneath_moves_the_stamp() {
+        let dir = scratch("stamp-moves");
+        let before = fingerprint(&dir);
+        assert_eq!(before, fingerprint(&dir), "and an untouched tree stays put");
+
+        std::fs::write(dir.join("entities/one.md"), "id: act_one\nname: One\n").expect("rewrite");
+        assert_ne!(before, fingerprint(&dir));
+
+        std::fs::write(dir.join("entities/two.md"), "id: act_two\n").expect("a new record");
+        assert_ne!(before, fingerprint(&dir), "a record that appeared counts too");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `.worldbuilder/` is where derived work lands — a materialized revision, a terrain
+    /// cache — and the app writes there while the writer is doing nothing at all. If that
+    /// moved the stamp, comparing two versions would report the world as having changed
+    /// underneath you, which is both false and alarming.
+    #[test]
+    fn work_the_app_does_in_a_dot_directory_leaves_the_stamp_alone() {
+        let dir = scratch("stamp-dot");
+        let before = fingerprint(&dir);
+
+        std::fs::create_dir_all(dir.join("entities/.worldbuilder/compare")).expect("scratch dir");
+        std::fs::write(dir.join("entities/.worldbuilder/compare/one.md"), "id: act_one\n")
+            .expect("materialized");
+        assert_eq!(before, fingerprint(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
