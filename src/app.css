@@ -155,6 +155,11 @@ aside.panel {
   font-size: 19px;
   font-weight: 600;
   line-height: 1.2;
+  /* Panel headings are things the writer named, and a writer who names a what-if
+     `what-if/aldric-survives-the-siege` has written one word by this rule. `break-word`
+     rather than `anywhere`: it breaks a word only when the word cannot fit on a line of
+     its own, so ordinary two-word titles still wrap between the words. */
+  overflow-wrap: break-word;
 }
 
 /* What kind of thing the panel is showing, above its name. */

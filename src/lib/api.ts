@@ -490,8 +490,12 @@ export interface RecordDiff {
 }
 
 export interface Compare {
+  /** What to ask for to work it out again — often a bare sha, so never what to show. */
   rev: string;
-  label: string;
+  /** What to call it: the branch the writer clicked, or what that save point says. */
+  title: string;
+  /** The commit `rev` named at the moment this was worked out. */
+  at: Commit;
   added: RecordDiff[];
   removed: RecordDiff[];
   changed: RecordDiff[];

@@ -35,7 +35,10 @@ mod write;
 use std::path::{Path, PathBuf};
 
 pub use error::{Error, Result};
-pub use read::{Branch, Change, Commit, History, Status, branches, history, materialize, status};
+pub use read::{
+    Branch, Change, Commit, History, Resolved, Status, branches, history, materialize, resolve,
+    status,
+};
 pub use scratch::Scratch;
 pub use write::{Merge, commit, create_branch, delete_branch, discard, merge_into, switch};
 

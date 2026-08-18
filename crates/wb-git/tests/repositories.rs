@@ -138,6 +138,34 @@ fn a_folder_nothing_tracks_has_no_standing_and_no_status() {
     assert!(matches!(wb_git::status(&standing), Err(Error::NotARepository { .. })));
 }
 
+/// The property the version chip rests on, now that it stops reporting a clean tree it
+/// could not see.
+///
+/// `status` answers two different questions with one type — where the world stands, and
+/// whether it could be looked at — and only the second one can be told apart by the
+/// caller if this holds. A repository that answers "no branch, nothing unsaved" when it
+/// is actually unreadable is the worst possible answer: it is the same shape as a saved,
+/// healthy world.
+#[test]
+fn a_repository_that_cannot_be_read_is_an_error_rather_than_an_empty_status() {
+    let sandbox = Sandbox::new("unreadable");
+    seed_world(sandbox.path());
+    repo_at(sandbox.path());
+    let standing = Standing::of(sandbox.path());
+    commit_all(&standing, "everything saved");
+    assert!(wb_git::status(&standing).expect("status").dirty.is_empty());
+
+    // What an interrupted `git add` can leave behind, and the reason this is worth a test
+    // rather than an assumption: it is damage the *writer's* own tools do, to a file this
+    // app never writes.
+    write(&sandbox.path().join(".git/index"), "not an index, and never was");
+
+    assert!(
+        wb_git::status(&standing).is_err(),
+        "a repository that cannot be read must say so rather than report a clean tree"
+    );
+}
+
 // ------------------------------------------------------------------- reading
 
 #[test]
@@ -236,6 +264,29 @@ fn a_symlink_in_the_tree_is_skipped_rather_than_restored_pointing_nowhere() {
         "a symlink restored into a scratch directory points somewhere unrelated to \
          where it pointed, which is worse than its absence"
     );
+}
+
+#[test]
+fn a_revision_written_as_an_id_resolves_to_what_that_save_point_says_about_itself() {
+    let sandbox = Sandbox::new("resolve");
+    seed_world(sandbox.path());
+    repo_at(sandbox.path());
+    let standing = Standing::of(sandbox.path());
+    commit_all(&standing, "the siege, finally dated");
+    let id = wb_git::history(&standing, 1).expect("history").commits[0].full.clone();
+
+    // What the compare panel is handed when the writer clicks a row in the history: a
+    // forty-character hash, and nothing a person would recognise their own work by.
+    let by_id = wb_git::resolve(&standing, &id).expect("resolve an id");
+    assert!(by_id.by_id, "written as an id, so there is no name to show");
+    assert_eq!(by_id.commit.summary, "the siege, finally dated");
+
+    // And what it is handed when they click a what-if: a name they chose, which must
+    // come back unchanged rather than being replaced by its tip's message.
+    wb_git::create_branch(&standing, "what-if/aldric-lived", false).expect("branch");
+    let by_name = wb_git::resolve(&standing, "what-if/aldric-lived").expect("resolve a name");
+    assert!(!by_name.by_id, "a name resolves to an id that is nothing like the string");
+    assert_eq!(by_name.commit.full, id, "and it is still the same commit underneath");
 }
 
 #[test]

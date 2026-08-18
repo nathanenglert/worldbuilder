@@ -1024,9 +1024,17 @@
 
 <div class="app">
   <header>
+    <!-- One line, not two. Stacked, this block was 55px tall and the tallest thing in the
+         header — which is most of what the chip row below now costs, so collapsing it pays
+         for that row rather than adding to it. -->
     <div class="identity">
+      <h1>{summary?.name ?? "Worldbuilder"}</h1>
+      <!-- The calendar's name is not here any more. Stacked above the world's name it was
+           a label; on the same line as it, it read as a stutter — this world is called
+           "The Vashen Reckoning" and keeps time in the "Vashen Reckoning" — and a calendar
+           is a fact about dates rather than about identity. It has gone where the dates
+           are, as the readout's title. -->
       <p class="eyebrow">
-        {summary?.calendar ?? "Worldbuilder"}
         <button class="open" onclick={() => (opening = !opening)} title="Open another world folder">
           {opening ? "cancel" : "open…"}
         </button>
@@ -1042,11 +1050,10 @@
           >
         {/if}
       </p>
-      <h1>{summary?.name ?? "No world open"}</h1>
     </div>
 
     <div class="readout">
-      <div class="when">
+      <div class="when" title={summary ? `Dates are in the ${summary.calendar}` : undefined}>
         <p class="date">{label || "—"}</p>
         <p class="daynum">day {day.toLocaleString()}</p>
       </div>
@@ -1089,6 +1096,42 @@
     </form>
 
     {#if summary}
+      <!-- One title each. The whole block used to carry a single tooltip about the last
+           stat in it, so the four counts a writer would actually wonder about explained
+           nothing, and the one that did was explained by hovering somewhere else. -->
+      <dl class="stats" class:stale>
+        <div title="Records with a lifespan: people, places, polities, things">
+          <dt>entities</dt>
+          <dd>{summary.entity_count}</dd>
+        </div>
+        <div title="Dated happenings, which is what everything else hangs its dates off">
+          <dt>events</dt>
+          <dd>{summary.event_count}</dd>
+        </div>
+        {#if summary.scene_count > 0}
+          <div title="Chapters of the book placed in the world, in reading order">
+            <dt>scenes</dt>
+            <dd>{summary.scene_count}</dd>
+          </div>
+        {/if}
+        <!-- Not "changes". These are the only instants at which this world is different
+             from the instant before, which is why dragging across three centuries costs a
+             handful of queries and not three centuries of them. -->
+        <div title="Days on which anything about this world changes — the whole timeline is flat between them">
+          <dt>turning points</dt>
+          <dd>{summary.change_points.length}</dd>
+        </div>
+        <!-- The change-point premise with its workings shown: snapshots actually fetched
+             against scrubber movements. It is a claim about the engine being demonstrated
+             live, which belongs in front of whoever is building it and nobody else. -->
+        {#if import.meta.env.DEV}
+          <div class="hot" title="Snapshots fetched / scrub movements — dev builds only">
+            <dt>queries</dt>
+            <dd>{mapQueries} <span>/ {scrubSteps}</span></dd>
+          </div>
+        {/if}
+      </dl>
+
       <div class="chips">
         <button class="chip find" onclick={() => (goingTo = true)} title="Go to a record (⌘K)">
           ⌘K go to
@@ -1225,41 +1268,6 @@
         </span>
       </div>
 
-      <!-- One title each. The whole block used to carry a single tooltip about the last
-           stat in it, so the four counts a writer would actually wonder about explained
-           nothing, and the one that did was explained by hovering somewhere else. -->
-      <dl class="stats" class:stale>
-        <div title="Records with a lifespan: people, places, polities, things">
-          <dt>entities</dt>
-          <dd>{summary.entity_count}</dd>
-        </div>
-        <div title="Dated happenings, which is what everything else hangs its dates off">
-          <dt>events</dt>
-          <dd>{summary.event_count}</dd>
-        </div>
-        {#if summary.scene_count > 0}
-          <div title="Chapters of the book placed in the world, in reading order">
-            <dt>scenes</dt>
-            <dd>{summary.scene_count}</dd>
-          </div>
-        {/if}
-        <!-- Not "changes". These are the only instants at which this world is different
-             from the instant before, which is why dragging across three centuries costs a
-             handful of queries and not three centuries of them. -->
-        <div title="Days on which anything about this world changes — the whole timeline is flat between them">
-          <dt>turning points</dt>
-          <dd>{summary.change_points.length}</dd>
-        </div>
-        <!-- The change-point premise with its workings shown: snapshots actually fetched
-             against scrubber movements. It is a claim about the engine being demonstrated
-             live, which belongs in front of whoever is building it and nobody else. -->
-        {#if import.meta.env.DEV}
-          <div class="hot" title="Snapshots fetched / scrub movements — dev builds only">
-            <dt>queries</dt>
-            <dd>{mapQueries} <span>/ {scrubSteps}</span></dd>
-          </div>
-        {/if}
-      </dl>
     {/if}
   </header>
 
@@ -1394,7 +1402,13 @@
       <VersionPanel
         kept={kept.version}
         onchanged={afterBranch}
-        onstatus={(v) => (version = { branch: v.branch, dirty: v.dirty.length, kind: v.standing.kind })}
+        onstatus={(v) => {
+          version = { branch: v.branch, dirty: v.dirty.length, kind: v.standing.kind };
+          // The panel answered, so the chip is no longer in the dark — and it is the same
+          // command behind both, so a chip left saying "did not answer" next to a panel
+          // showing the answer would be two readings of one fetch disagreeing.
+          versionFailed = false;
+        }}
         onselect={pick}
         onclose={closePanel}
       />
@@ -1457,11 +1471,30 @@
     min-height: 0;
   }
 
+  /*
+   * Two rows, and the split is what they are rather than where they fit: the top row is
+   * everything the app is *telling* the writer — which world, which day, what is broken,
+   * how much of it there is — and the bottom row is everything they can press.
+   *
+   * It was one row with the chips wrapping inside their own column, which the comment
+   * there called a fallback for narrow windows. It was not a fallback. Laid out on one
+   * line the chips need 914 pixels, and the four things beside them need 789 of the 1393
+   * a 1433-pixel window has — so the column could spare 549, and the row broke at every
+   * width a laptop has ever had. Worse, it broke *differently* depending on which chips
+   * happened to exist, and two of them appear on their own: the staleness poll adding
+   * "the files moved" three seconds after launch re-packed the rows under a writer who
+   * had done nothing at all.
+   *
+   * Given a row to itself the chips have 1393 and need 914, so they fit — down to about
+   * an 1100-pixel window, which is narrower than this app is usable at anyway.
+   */
   header {
     display: grid;
-    grid-template-columns: minmax(140px, 1fr) auto minmax(170px, 1fr) auto auto;
+    grid-template-columns: minmax(0, auto) auto minmax(170px, 1fr) auto;
     align-items: center;
-    gap: 14px;
+    /* Rows closer than columns, so the two lines read as one header rather than as two
+       bars. The column gap is the 14px it always was, one step up the scale. */
+    gap: var(--s-6) var(--s-7);
     padding: 14px 20px;
     border-bottom: 1px solid var(--rule);
     background: var(--paper);
@@ -1474,18 +1507,24 @@
     min-width: 0;
   }
 
-  /* Six chips is more than one row can promise to hold on a narrow window, and a chip
-     silently off the edge is worse than a second row. */
+  /* The full width of the header, under everything it is a control for. Still allowed to
+     wrap — a chip silently off the edge is worse than a second row — but now that is the
+     fallback it was always described as, rather than the every-time behaviour. */
   .chips {
+    grid-column: 1 / -1;
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
   }
 
+  /* The three things you can press to make something exist, at the far end of the row
+     from the things that report. They are the only filled chips, so they read as one
+     block wherever they sit, and the row now has the width to put them somewhere. */
   .chips .group {
     display: flex;
     flex-wrap: nowrap;
     gap: 6px;
+    margin-left: auto;
   }
 
   .chip {
@@ -1601,7 +1640,22 @@
     border-style: dotted;
   }
 
+  /* The world's name and the two operations on the folder holding it, on one baseline.
+     Nothing may shrink but the name, which already knows how to end in an ellipsis —
+     `open…` narrowing to `open` would be the header eating its own controls. */
+  .identity {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .identity h1 {
+    flex: 0 1 auto;
+  }
+
   .eyebrow {
+    flex: none;
     margin: 0;
     font-family: var(--f-mono);
     font-size: 9.5px;

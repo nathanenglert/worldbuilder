@@ -133,10 +133,18 @@
   {#if comparison}
     <button class="back" onclick={() => (kept.comparison = null)}> ‹ all versions </button>
 
+    <!-- Headed by what the writer would recognise their own work by, which is never the
+         hash: a save point is named by the sentence they wrote on it, a what-if by the
+         name they gave it. The revision is still what `work it out again` asks for, and
+         the resolved commit is underneath — a branch moves, so the comparison says which
+         point it meant when it was worked out.
+
+         The eyebrow carries the direction, because `added · 2` has none of its own: it
+         means the world has two records this revision does not. -->
     <header>
-      <p class="kind">compared against</p>
-      <h2>{comparison.rev}</h2>
-      <p class="id">{comparison.label}</p>
+      <p class="kind">the world now, against</p>
+      <h2>{comparison.title}</h2>
+      <p class="id">{comparison.at.id} · {when(comparison.at.when)}</p>
     </header>
 
     {#if kept.stale}
@@ -213,6 +221,22 @@
         </p>
       {/if}
     {/if}
+  {:else if failure && !version}
+    <!-- Before the "looking…" arm, and that ordering is the point: a first load that
+         fails leaves `version` null forever, so without this the panel sits saying it is
+         still looking at something it has already given up on. The failure has a home
+         further down for refusals, but that arm is inside the branch that needs a status
+         to render at all. -->
+    <header>
+      <p class="kind">versions</p>
+      <h2>Version control did not answer</h2>
+    </header>
+    <p class="caution bad">{failure}</p>
+    <p class="explain">
+      Your files are untouched — this is the reading that failed, not the world. Nothing
+      here can be trusted until it answers, so nothing here is shown.
+    </p>
+    <button class="retry" disabled={busy} onclick={() => void load()}>ask again</button>
   {:else if !version}
     <p class="explain">Looking for version control…</p>
   {:else if version.standing.kind === "none"}
@@ -530,6 +554,7 @@
 
   .acts button,
   .compose button,
+  .retry,
   .danger {
     font-family: var(--f-mono);
     font-size: 10.5px;
@@ -540,9 +565,14 @@
   }
 
   .acts button:hover:not(:disabled),
-  .compose button:hover:not(:disabled) {
+  .compose button:hover:not(:disabled),
+  .retry:hover:not(:disabled) {
     color: var(--accent);
     border-color: var(--rule-strong);
+  }
+
+  .retry {
+    align-self: start;
   }
 
   /* Red rather than amber. Throwing four changes away and deleting a what-if are the two

@@ -48,6 +48,16 @@ impl Commit {
     }
 }
 
+/// What a revision string turned out to name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Resolved {
+    pub commit: Commit,
+    /// The revision was written as an object id rather than as a name — so there is no
+    /// name to show, and what the commit says about itself is the only human thing
+    /// about it.
+    pub by_id: bool,
+}
+
 /// One uncommitted difference. `path` is relative to the repository root, so a nested
 /// world's changes read as `examples/vashen/entities/…` — which is where they are.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -237,6 +247,22 @@ pub fn branches(standing: &Standing) -> Result<Vec<Branch>> {
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
+}
+
+/// The commit a revision names, without materializing anything.
+///
+/// [`materialize`] peels the same revspec and then throws the commit away, which is why
+/// a comparison could only ever be headed by the string that was asked for — and half
+/// the time that string is a forty-character hash. This keeps the commit, so the panel
+/// can head a comparison with what the save point *says*.
+pub fn resolve(standing: &Standing, rev: &str) -> Result<Resolved> {
+    let repo = standing.open()?;
+    let commit = repo.revparse_single(rev)?.peel_to_commit()?;
+    // A name resolves to an id that has nothing to do with the string it was written as;
+    // an id resolves to itself, possibly abbreviated. That is the entire test, and it
+    // needs no list of what git is willing to accept as a name.
+    let by_id = commit.id().to_string().starts_with(rev);
+    Ok(Resolved { commit: Commit::of(&commit), by_id })
 }
 
 /// Write the world folder as it stood at `rev` into `into`, and return that path.

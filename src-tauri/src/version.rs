@@ -117,9 +117,16 @@ pub struct FileDiffDto {
 
 #[derive(Serialize)]
 pub struct CompareDto {
-    /// What was compared against, as the writer named it.
+    /// What was compared against, as the writer named it. Kept because it is what
+    /// re-running the comparison asks for again, and not because it is worth reading:
+    /// half the time it is a forty-character hash.
     pub rev: String,
-    pub label: String,
+    /// What to call it on screen — the branch the writer clicked, or, when they compared
+    /// against a bare revision, the sentence that save point was written with.
+    pub title: String,
+    /// The commit `rev` resolved to. A branch is a moving target, so the comparison says
+    /// which point it actually meant at the moment it was worked out.
+    pub at: CommitDto,
     pub added: Vec<RecordDiffDto>,
     pub removed: Vec<RecordDiffDto>,
     pub changed: Vec<RecordDiffDto>,
@@ -252,18 +259,29 @@ pub fn version_status(state: State<'_, AppState>) -> Result<VersionDto, String> 
         let standing = standing_of(world);
         let described = describe(&standing, world);
 
-        let Ok(status) = wb_git::status(&standing) else {
-            return VersionDto {
+        // Nothing tracks this folder. There is no status to report and that is not a
+        // failure — `kind: none` is the entire answer, and the panel has a paragraph
+        // about `git init` waiting for it.
+        if standing.repo().is_none() {
+            return Ok(VersionDto {
                 standing: described,
                 branch: None,
                 canon: None,
                 head: None,
                 dirty: Vec::new(),
                 unborn: false,
-            };
-        };
+            });
+        }
 
-        VersionDto {
+        // Anything else that goes wrong travels as an error, and this is the fix for a
+        // real one: the two cases used to share the arm above, so a repository that could
+        // not be read — a half-written index, a `.git` we lack permission on — reported a
+        // clean tree on no branch, and the header chip drew that in accent green, as
+        // *everything saved*. A version indicator may say it does not know. It may not say
+        // the work is safe because it could not look.
+        let status = wb_git::status(&standing).map_err(|e| e.to_string())?;
+
+        Ok(VersionDto {
             standing: described,
             branch: status.branch,
             canon: status.canon,
@@ -274,8 +292,8 @@ pub fn version_status(state: State<'_, AppState>) -> Result<VersionDto, String> 
                 .map(|c| ChangeDto { path: c.path, state: c.state })
                 .collect(),
             unborn: status.unborn,
-        }
-    })
+        })
+    })?
 }
 
 #[tauri::command]
@@ -316,6 +334,7 @@ pub fn version_branches(state: State<'_, AppState>) -> Result<Vec<BranchDto>, St
 pub fn version_compare(rev: String, state: State<'_, AppState>) -> Result<CompareDto, String> {
     state.read(|world| {
         let standing = standing_of(world);
+        let named = wb_git::resolve(&standing, &rev).map_err(|e| e.to_string())?;
         let (scratch, other) = materialized(&standing, &rev, world)?;
 
         let diff = wb_propose::diff_worlds(&other, world);
@@ -345,7 +364,12 @@ pub fn version_compare(rev: String, state: State<'_, AppState>) -> Result<Compar
         drop(scratch);
 
         Ok(CompareDto {
-            label: format!("{rev} → the world as it stands now"),
+            // A revision written out as an id has no name to show; anything else was
+            // *chosen* by the writer — they clicked a branch called `what-if/aldric-lived`
+            // — and replacing that with its tip's message would be answering a question
+            // they did not ask.
+            title: if named.by_id { named.commit.summary.clone() } else { rev.clone() },
+            at: named.commit.into(),
             rev,
             added: diff.added.into_iter().map(plain).collect(),
             removed: diff.removed.into_iter().map(plain).collect(),
