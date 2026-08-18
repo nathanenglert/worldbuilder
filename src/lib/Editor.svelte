@@ -62,7 +62,11 @@
     onjump,
     onresolve,
   }: {
-    target: { kind: "entity" | "event" | "scene"; id: string | null };
+    /**
+     * `focus` is the attribute the form was opened *at*, when the writer arrived by
+     * clicking a fact rather than an edit button.
+     */
+    target: { kind: "entity" | "event" | "scene"; id: string | null; focus?: string };
     summary: WorldSummary | null;
     geometry: { marker: [number, number] | null; shape: [number, number][] };
     mode: "browse" | "marker" | "shape";
@@ -119,6 +123,17 @@
    */
   const attrs = $derived((summary?.attrs ?? []).map((a) => a.name));
   const creating = $derived(target.id === null);
+  /**
+   * The row the writer clicked, or `-1`.
+   *
+   * The *first* window of that attribute, not the one in force on the scrubbed day: the
+   * form does not know the day, and knowing it would not help — `to: @evt_siege_of_marrow`
+   * is an expression, and resolving six of them to find one row would be a round trip per
+   * fact. Landing on the attribute is what was asked for; the windows sit together.
+   */
+  const sought = $derived(
+    target.focus ? (draft?.facts.findIndex((f) => f.attr === target.focus) ?? -1) : -1,
+  );
   const primitive = $derived(types.find((t) => t.name === draft?.type)?.primitive ?? null);
 
   // ---- loading
@@ -534,6 +549,7 @@
           bind:fact={draft.facts[i]}
           {attrs}
           {anchors}
+          sought={i === sought}
           onremove={() => draft!.facts.splice(i, 1)}
           onsplit={() => split(i)}
           {onjump}

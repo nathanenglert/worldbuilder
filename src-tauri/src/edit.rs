@@ -522,6 +522,42 @@ pub struct ReferenceDto {
     pub how: &'static str,
 }
 
+/// What a record is called, whatever kind of record it is.
+///
+/// Scenes were missing from the lookup this replaces, so a delete confirmation listing
+/// what still points at a record named the events by name and the scenes by id —
+/// `scn_gate_at_dusk` sitting under "The Siege of Marrow" in the same list. An id is what
+/// you show when there is no name; a scene has one.
+fn name_of(world: &World, id: &str) -> String {
+    world
+        .entities
+        .get(id)
+        .map(|e| e.name.clone())
+        .or_else(|| world.events.get(id).map(|e| e.name.clone()))
+        .or_else(|| world.scenes.get(id).map(|s| s.name.clone()))
+        .unwrap_or_else(|| id.to_string())
+}
+
+/// Everything that names `id`, named back.
+///
+/// A thin wrapping of [`World::references_to`] and deliberately nothing more: the same
+/// answer the delete confirmation has always shown, now reachable without proposing to
+/// delete anything. An id the world has never heard of is not an error here — it is the
+/// case this most needs to answer, because a reference left dangling by a delete is
+/// exactly what the writer is trying to find.
+pub fn references_of(world: &World, id: &str) -> Vec<ReferenceDto> {
+    world
+        .references_to(id)
+        .into_iter()
+        .map(|r| ReferenceDto { name: name_of(world, &r.by), by: r.by, how: r.how })
+        .collect()
+}
+
+#[tauri::command]
+pub fn references(id: String, state: State<'_, AppState>) -> Result<Vec<ReferenceDto>, String> {
+    state.read(|world| references_of(world, &id))
+}
+
 #[derive(Serialize)]
 pub struct SaveResultDto {
     pub summary: WorldSummary,
@@ -553,16 +589,7 @@ pub(crate) fn preview_of(world: &World, plan: &EditPlan) -> EditPreviewDto {
         references: plan
             .references
             .iter()
-            .map(|r| ReferenceDto {
-                name: world
-                    .entities
-                    .get(&r.by)
-                    .map(|e| e.name.clone())
-                    .or_else(|| world.events.get(&r.by).map(|e| e.name.clone()))
-                    .unwrap_or_else(|| r.by.clone()),
-                by: r.by.clone(),
-                how: r.how,
-            })
+            .map(|r| ReferenceDto { name: name_of(world, &r.by), by: r.by.clone(), how: r.how })
             .collect(),
         revision: plan.revision.clone(),
     }

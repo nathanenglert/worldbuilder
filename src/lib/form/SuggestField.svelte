@@ -14,6 +14,7 @@
     listId,
     placeholder = "",
     mono = false,
+    takeFocus = false,
     onsettled,
   }: {
     value?: string;
@@ -22,11 +23,31 @@
     placeholder?: string;
     /** For the machine-facing ones — an attribute key, not a name. Matches `TextInput`. */
     mono?: boolean;
+    /**
+     * Set by a caller that opened this form *at* this box — clicking a fact in the
+     * inspector to change it. The caret goes here rather than the writer hunting for the
+     * row they were just reading.
+     */
+    takeFocus?: boolean;
     onsettled?: () => void;
   } = $props();
+
+  let el = $state<HTMLInputElement | null>(null);
+
+  $effect(() => {
+    if (takeFocus) el?.focus();
+  });
 </script>
 
-<input type="text" bind:value list={listId} {placeholder} class:mono onblur={onsettled} />
+<input
+  type="text"
+  bind:this={el}
+  bind:value
+  list={listId}
+  {placeholder}
+  class:mono
+  onblur={onsettled}
+/>
 <datalist id={listId}>
   {#each options as o (o)}
     <option value={o}></option>

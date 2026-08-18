@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use wb_core::{CivilDate, Day};
 use wb_store::{World, load};
 use worldbuilder_lib::commands::{SnapshotDto, WorldSummary};
+use worldbuilder_lib::edit::references_of;
 
 fn vashen() -> World {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../examples/vashen");
@@ -160,19 +161,46 @@ fn the_attribute_vocabulary_is_ordered_by_how_much_of_the_world_uses_it() {
     assert!(counts.windows(2).all(|w| w[0].0 >= w[1].0), "most-used first: {counts:?}");
 
     let population = summary.attrs.iter().find(|a| a.name == "population").unwrap();
-    let windows = world.entities["place_marrow"]
-        .facts
-        .iter()
-        .filter(|f| f.attr == "population")
-        .count();
+    let windows =
+        world.entities["place_marrow"].facts.iter().filter(|f| f.attr == "population").count();
     assert!(windows > 1, "the fixture is what we think it is: {windows} windows");
     assert_eq!(population.count, 1, "one record tracks it, however many times it changed");
 
     assert!(summary.attrs.iter().any(|a| a.name == "owner"), "the map's own attribute");
-    assert!(
-        !summary.attrs.iter().any(|a| a.name.is_empty()),
-        "nothing nameless gets offered"
+    assert!(!summary.attrs.iter().any(|a| a.name.is_empty()), "nothing nameless gets offered");
+}
+
+/// The other half of a record: not what it says, but what says it.
+#[test]
+fn what_points_at_a_record_calls_every_kind_of_pointer_by_its_name() {
+    let world = vashen();
+    let pointing = references_of(&world, "act_aldric_vane");
+
+    let named: Vec<(&str, &str, &str)> =
+        pointing.iter().map(|r| (r.by.as_str(), r.name.as_str(), r.how)).collect();
+    assert_eq!(
+        named,
+        [
+            ("evt_oath_of_vashen", "The Oath of Vashen", "participant"),
+            ("evt_siege_of_marrow", "The Siege of Marrow", "participant"),
+            // The one that used to arrive as `scn_gate_at_dusk`: the name lookup knew
+            // about entities and events, and a scene fell through to its own id.
+            ("scn_gate_at_dusk", "The gate at dusk", "pov"),
+        ]
     );
+}
+
+/// The state a delete leaves behind, which is the state this question is worth the most
+/// in: the record is gone, three things still name it, and the panel can say which.
+#[test]
+fn what_pointed_at_a_record_survives_the_record() {
+    let world = vashen();
+    let after = world.without("act_aldric_vane").expect("nothing dates itself against Aldric");
+
+    assert!(!after.knows("act_aldric_vane"), "the fixture is what we think it is");
+    let orphaned: Vec<String> =
+        references_of(&after, "act_aldric_vane").into_iter().map(|r| r.by).collect();
+    assert_eq!(orphaned, ["evt_oath_of_vashen", "evt_siege_of_marrow", "scn_gate_at_dusk"]);
 }
 
 /// The scrubber's premise, checked against the payload the UI compares: sampling every

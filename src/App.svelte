@@ -6,9 +6,11 @@
     type Finding,
     type Lineage,
     type ProposalSummary,
+    type Reference,
     type Snapshot,
     type Story,
     type StoryScene,
+    type Surfacing,
     type Terrain,
     type WorldEvent,
     type WorldSummary,
@@ -26,6 +28,7 @@
   import GoTo from "./lib/GoTo.svelte";
   import {
     existenceWindow,
+    idOf,
     nameOf,
     resolveLocally,
     type EditableKind,
@@ -70,7 +73,7 @@
   let version = $state<{ branch: string | null; dirty: number; kind: string } | null>(null);
 
   // ---- authoring
-  let editTarget = $state<{ kind: EditableKind; id: string | null } | null>(null);
+  let editTarget = $state<{ kind: EditableKind; id: string | null; focus?: string } | null>(null);
   let editDirty = $state(false);
   let mapMode = $state<"browse" | "marker" | "shape">("browse");
   /**
@@ -97,6 +100,91 @@
   const anchors = $derived(
     (summary?.records ?? []).filter((r) => r.kind === "event").map((r) => `@${r.id}`),
   );
+
+  // ---- everything the app already knows about a record, filed under its id
+  //
+  // The Inspector had one source — the snapshot — and so it could say what a record
+  // asserts and nothing else. Everything else about it was already in this component and
+  // reachable only through a panel that replaced the record on screen: the two findings
+  // that name Aldric were in the checks panel, the five times the book names him were in
+  // the story panel, and the three records that point at him could only be seen by
+  // *proposing to delete him*. Three indexes, built where the data already lives.
+
+  /**
+   * Findings, by every record they name.
+   *
+   * Over `subject` *and* `related`, because the two halves of a finding are both records
+   * it is about: the existence violation's subject is the siege and its related is
+   * Aldric, and it belongs on both. Deduplicated per finding — a rule that names the same
+   * record twice is one finding, not two.
+   */
+  const findingsBy = $derived.by(() => {
+    const by = new Map<string, Finding[]>();
+    for (const finding of findings) {
+      for (const id of new Set([finding.subject, ...finding.related])) {
+        const list = by.get(id);
+        if (list) list.push(finding);
+        else by.set(id, [finding]);
+      }
+    }
+    return by;
+  });
+
+  /** Where a record sits in the book, by id. Entities only — the iceberg measures records. */
+  const surfacingBy = $derived(
+    new Map((story?.records ?? []).map((r) => [r.id, r] as [string, Surfacing])),
+  );
+
+  /**
+   * Ids to names, and the answer to whether an id is a record at all.
+   *
+   * Step 4's `records[]` paying off twice: a finding's subject can be rendered as "The
+   * Siege of Marrow" instead of `evt_siege_of_marrow`, and an id that is *not* in here is
+   * one that resolves to nothing — which is worth showing differently rather than
+   * hiding, because a reference going nowhere is a thing about the world.
+   */
+  const names = $derived(
+    Object.fromEntries((summary?.records ?? []).map((r) => [r.id, r.name])) as Record<
+      string,
+      string
+    >,
+  );
+
+  /**
+   * What points at the selected record. The one of the three that is not already here.
+   *
+   * A whole-world index would mean asking `references_to` once per record, which is the
+   * world scanned once per record — and a second copy of the world in the frontend to
+   * hold it. One id at a time is what the panel actually shows, and it is the same shape
+   * the record lookup above already takes.
+   *
+   * Carried with the id it answers for, so the panel never attributes one record's
+   * referrers to another while a fetch is in flight, and can tell "nothing points here"
+   * from "not answered yet".
+   */
+  let pointing = $state<{ id: string; refs: Reference[] } | null>(null);
+  let pointingToken = 0;
+
+  $effect(() => {
+    const id = selected;
+    // Re-read after every write: saving a record can add or drop an edge to any other,
+    // and `summary` is the object every write hands back.
+    void summary;
+
+    const mine = ++pointingToken;
+    if (id === null) {
+      pointing = null;
+      return;
+    }
+    void api
+      .references(id)
+      .then((refs) => {
+        if (mine === pointingToken) pointing = { id, refs };
+      })
+      .catch(() => {
+        if (mine === pointingToken) pointing = null;
+      });
+  });
 
   // Makes the change-point premise visible: drag across three centuries and the query
   // count barely moves, because the world only changes at a handful of instants.
@@ -412,7 +500,12 @@
      */
     | { act: "visit"; id: string | null; day: number | null }
     | { act: "panel"; panel: Exclude<Panel, "edit"> }
-    | { act: "edit"; kind: EditableKind; id: string | null }
+    /**
+     * `focus` is which attribute the form should open *at*. A fact read in the inspector
+     * and the box that would change it are the same fact, and the trip between them was
+     * "open the form, then find the row again" down a form that can run past a screen.
+     */
+    | { act: "edit"; kind: EditableKind; id: string | null; focus?: string }
     | { act: "close" }
     | { act: "open"; path: string };
 
@@ -439,6 +532,10 @@
    * record it is already showing hands it a fresh `target`, which reloads the record and
    * takes the draft with it. That is reachable — a scene dot on the map opens the form,
    * and it is still drawn while that scene is being edited.
+   *
+   * `focus` is deliberately not compared. The same record asked for at a different
+   * attribute is still the record already open, and reloading it to move the caret would
+   * trade a draft for a scroll position.
    */
   function settled(intent: Intent): boolean {
     return (
@@ -493,7 +590,7 @@
     if (panel === "edit") dropForm();
 
     if (intent.act === "edit") {
-      editTarget = { kind: intent.kind, id: intent.id };
+      editTarget = { kind: intent.kind, id: intent.id, focus: intent.focus };
       if (intent.id) selected = intent.id;
       panel = "edit";
     } else if (intent.act === "open") {
@@ -542,8 +639,8 @@
   /** A header chip: the panel it names, or back out of it if that is what is showing. */
   const toggle = (p: Exclude<Panel, "edit">) =>
     intend({ act: "panel", panel: panel === p ? "inspector" : p });
-  const openEditor = (kind: EditableKind, id: string | null) =>
-    intend({ act: "edit", kind, id });
+  const openEditor = (kind: EditableKind, id: string | null, focus?: string) =>
+    intend({ act: "edit", kind, id, focus });
   const closePanel = () => intend({ act: "close" });
 
   /** Take the writer to the moment and the record a finding is about. */
@@ -905,13 +1002,14 @@
         onresolve={resolveHeld}
       />
     {:else if panel === "checks"}
-      <Findings {findings} onjump={inspectFinding} onclose={closePanel} />
+      <Findings {findings} {names} onjump={inspectFinding} onselect={visit} onclose={closePanel} />
     {:else if panel === "proposals"}
       <Proposals {proposals} ondecided={afterDecision} onclose={closePanel} />
     {:else if panel === "story"}
       <StoryPanel
         {story}
         {scenes}
+        {names}
         onselect={inspect}
         onscene={(id) => openEditor("scene", id)}
         onclose={closePanel}
@@ -930,6 +1028,10 @@
         {snapshot}
         {terrain}
         {selection}
+        {names}
+        findings={findingsBy.get(idOf(selection) ?? "") ?? []}
+        surfacing={surfacingBy.get(idOf(selection) ?? "") ?? null}
+        references={pointing?.id === idOf(selection) ? pointing.refs : null}
         onselect={inspect}
         onedit={openEditor}
         onday={jumpTo}

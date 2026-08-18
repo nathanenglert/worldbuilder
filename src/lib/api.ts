@@ -535,6 +535,12 @@ export const api = {
 
   entityRecord: (id: string) => invoke<EntityRecord>("entity_record", { id }),
   eventRecord: (id: string) => invoke<EventRecord>("event_record", { id }),
+  /**
+   * What still points at a record — the only one of the Inspector's three sources that
+   * is not already in hand. An id the world never heard of answers `[]` rather than
+   * failing: a reference left dangling by a delete is exactly what this is for.
+   */
+  references: (id: string) => invoke<Reference[]>("references", { id }),
   previewEntity: (draft: EntityDraft) => invoke<EditPreview>("preview_entity", { draft }),
   previewEvent: (draft: EventDraft) => invoke<EditPreview>("preview_event", { draft }),
   previewDelete: (id: string) => invoke<EditPreview>("preview_delete", { id }),

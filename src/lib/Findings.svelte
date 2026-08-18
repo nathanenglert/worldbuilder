@@ -3,11 +3,18 @@
 
   let {
     findings,
+    names,
     onjump,
+    onselect,
     onclose,
   }: {
     findings: Finding[];
+    /** Ids to names. An id absent from it is one no record answers to. */
+    names: Record<string, string>;
+    /** The whole finding: its moment and the record it leans on. */
     onjump: (finding: Finding) => void;
+    /** One named record, on its own. */
+    onselect: (id: string) => void;
     onclose: () => void;
   } = $props();
 
@@ -15,6 +22,16 @@
   const possible = $derived(findings.filter((f) => f.certainty === "possible"));
 
   const fileOf = (path: string) => path.split("/").pop() ?? path;
+
+  /**
+   * Every record a finding is about, subject first and each named once.
+   *
+   * A finding has two ends and only one of them was reachable: the row went to
+   * `related[0]`, so the existence violation between the siege and Aldric could take a
+   * writer to Aldric and never to the siege — which is the record whose dates are more
+   * likely to be the thing that moves.
+   */
+  const about = (f: Finding) => [...new Set([f.subject, ...f.related])];
 </script>
 
 <aside>
@@ -32,19 +49,38 @@
     <p class="id">interval arithmetic, no model involved</p>
   </header>
 
+  <!-- The row reads the finding; the chips under it are the records it is about. Two
+       different moves, and they were one button: "take me to when this happened" and
+       "take me to this record" are not the same trip, and only the first one existed. -->
+  {#snippet row(f: Finding)}
+    <li>
+      <div class="finding" class:definite={f.certainty === "definite"}>
+        <button class="body" onclick={() => onjump(f)}>
+          <span class="rule">{f.title}</span>
+          <span class="msg">{f.message}</span>
+          {#if f.sources.length}
+            <span class="src">{f.sources.map(fileOf).join(" · ")}</span>
+          {/if}
+        </button>
+        <div class="who">
+          {#each about(f) as id (id)}
+            <!-- Struck through when nothing answers to the id, which is the whole of what
+                 a `reference-to-nothing` finding is reporting: the panel should not have
+                 to say in prose what the chip can show. -->
+            <button class="chip" class:gone={!names[id]} title={id} onclick={() => onselect(id)}>
+              {names[id] ?? id}
+            </button>
+          {/each}
+        </div>
+      </div>
+    </li>
+  {/snippet}
+
   {#if definite.length}
     <p class="label definite">Wrong under every reading</p>
     <ul>
       {#each definite as f, i (i)}
-        <li>
-          <button class="finding definite" onclick={() => onjump(f)}>
-            <span class="rule">{f.title}</span>
-            <span class="msg">{f.message}</span>
-            {#if f.sources.length}
-              <span class="src">{f.sources.map(fileOf).join(" · ")}</span>
-            {/if}
-          </button>
-        </li>
+        {@render row(f)}
       {/each}
     </ul>
   {/if}
@@ -57,15 +93,7 @@
     </p>
     <ul>
       {#each possible as f, i (i)}
-        <li>
-          <button class="finding" onclick={() => onjump(f)}>
-            <span class="rule">{f.title}</span>
-            <span class="msg">{f.message}</span>
-            {#if f.sources.length}
-              <span class="src">{f.sources.map(fileOf).join(" · ")}</span>
-            {/if}
-          </button>
-        </li>
+        {@render row(f)}
       {/each}
     </ul>
   {/if}
@@ -158,10 +186,8 @@
   }
 
   .finding {
-    width: 100%;
-    text-align: left;
     display: grid;
-    gap: 3px;
+    gap: 6px;
     padding: 9px 11px;
     background: var(--surface);
     border-left: 2px solid var(--rule-strong);
@@ -174,6 +200,39 @@
 
   .finding.definite {
     border-left-color: var(--warn);
+  }
+
+  .body {
+    width: 100%;
+    text-align: left;
+    display: grid;
+    gap: 3px;
+  }
+
+  .who {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .chip {
+    font-family: var(--f-mono);
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    color: var(--ink-3);
+    border: 1px solid var(--rule);
+  }
+
+  .chip:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .chip.gone {
+    color: var(--warn);
+    text-decoration: line-through;
+    text-decoration-color: var(--rule-strong);
   }
 
   .rule {

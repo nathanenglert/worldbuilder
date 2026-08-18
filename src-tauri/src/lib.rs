@@ -37,6 +37,9 @@ pub fn run() {
             // purpose: the snapshot is a rendered view at a date and cannot be saved back.
             edit::entity_record,
             edit::event_record,
+            // What points at a record. The same question the delete confirmation asks,
+            // asked without proposing to delete anything.
+            edit::references,
             edit::preview_entity,
             edit::preview_event,
             edit::preview_delete,

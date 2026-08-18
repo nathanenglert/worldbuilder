@@ -18,12 +18,19 @@
     fact = $bindable(),
     attrs = [],
     anchors = [],
+    sought = false,
     onremove,
     onsplit,
     onjump,
     onsettled,
   }: {
     fact: DraftFact;
+    /**
+     * This is the row the form was opened for. Takes the caret and scrolls itself into
+     * view: a record with a dozen facts is longer than the panel, and arriving at the top
+     * of it after clicking one fact is arriving in the wrong place.
+     */
+    sought?: boolean;
     /**
      * What this world's facts already call things.
      *
@@ -43,9 +50,15 @@
     onjump?: (day: number) => void;
     onsettled?: () => void;
   } = $props();
+
+  let row = $state<HTMLDivElement | null>(null);
+
+  $effect(() => {
+    if (sought) row?.scrollIntoView({ block: "center" });
+  });
 </script>
 
-<div class="fact">
+<div class="fact" bind:this={row} class:sought>
   <div class="head">
     <div class="attr">
       <Field label="attribute">
@@ -54,6 +67,7 @@
           options={attrs}
           listId="fact-attrs"
           mono
+          takeFocus={sought}
           {onsettled}
         />
       </Field>
@@ -92,6 +106,13 @@
     padding: 10px;
     background: var(--surface);
     border: 1px solid var(--rule);
+  }
+
+  /* Says "this is the one you asked for" for as long as the form is open on it. The
+     caret alone is too quiet to answer that in a stack of identical rows. */
+  .fact.sought {
+    border-color: var(--rule-strong);
+    box-shadow: inset 2px 0 0 var(--accent);
   }
 
   .head {

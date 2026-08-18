@@ -4,12 +4,15 @@
   let {
     story,
     scenes,
+    names,
     onselect,
     onscene,
     onclose,
   }: {
     story: Story | null;
     scenes: StoryScene[];
+    /** Ids to names, for the scenes a record was found in. */
+    names: Record<string, string>;
     onselect: (id: string) => void;
     onscene: (id: string) => void;
     onclose: () => void;
@@ -130,6 +133,18 @@
                       The prose never names this. If your book calls it something shorter, add
                       that spelling to its <code>aka</code> and it will count.
                     </p>
+                  {/if}
+                  <!-- Which chapters the count came from. The report has carried this
+                       since the iceberg was written and nothing has ever shown it, so
+                       the number could be read and not followed. -->
+                  {#if r.scenes.length}
+                    <div class="where">
+                      {#each r.scenes as id (id)}
+                        <button class="chip" title={id} onclick={() => onscene(id)}>
+                          {names[id] ?? id}
+                        </button>
+                      {/each}
+                    </div>
                   {/if}
                   <dl>
                     <div><dt>referenced by</dt><dd>{r.referenced_by}</dd></div>
@@ -336,6 +351,26 @@
     padding: 10px 11px 11px;
     background: var(--surface-2);
     border-left: 2px solid var(--rule);
+  }
+
+  .where {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .chip {
+    font-family: var(--f-mono);
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    color: var(--ink-3);
+    border: 1px solid var(--rule);
+  }
+
+  .chip:hover {
+    color: var(--accent);
+    border-color: var(--accent);
   }
 
   .quote {
