@@ -519,11 +519,38 @@ export interface ExportPreview {
   suggested: string;
 }
 
+/**
+ * Everything that has to be decided before a world can exist.
+ *
+ * Four fields, and the file it produces declares a dozen more — a map, a manuscript, the
+ * writer's own words for the things in their world. Those are lines in `world.yaml`,
+ * commented out and explained, rather than questions in a form: a novelist should not
+ * have to configure a product before writing a sentence.
+ */
+export interface WorldPlan {
+  /** The folder it will live in. Made if it is not there; refused if it holds a world. */
+  path: string;
+  name: string;
+  /** Earth's calendar, or twelve provisional months to start renaming. */
+  calendar: "earth" | "own";
+  /** Whether to `git init` the folder, which is what the version panel needs to work. */
+  track: boolean;
+}
+
 /** False when the page is open in a plain browser rather than the desktop shell. */
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 export const api = {
   openWorld: (path: string) => invoke<WorldSummary>("open_world", { path }),
+
+  /**
+   * Write a new world and open it.
+   *
+   * Returns the same summary as opening one, because that is what it does last — there
+   * is no separate "created" state for the app to be in.
+   */
+  createWorld: (plan: WorldPlan) => invoke<WorldSummary>("create_world", { ...plan }),
+
   examplePath: () => invoke<string | null>("example_world_path"),
   snapshot: (day: number) => invoke<Snapshot>("snapshot", { day }),
   terrain: () => invoke<Terrain | null>("terrain"),

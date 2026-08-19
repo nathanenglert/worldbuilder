@@ -19,6 +19,7 @@ pub fn run() {
     builder
         .manage(commands::AppState::default())
         .invoke_handler(tauri::generate_handler![
+            commands::create_world,
             commands::open_world,
             commands::example_world_path,
             commands::initial_world,

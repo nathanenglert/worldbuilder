@@ -120,7 +120,24 @@ fn canon_of(repo: &Repository) -> Option<String> {
             return Some(name.to_string());
         }
     }
-    repo.head().ok().and_then(|h| h.shorthand().ok().map(str::to_string))
+    repo.head()
+        .ok()
+        .and_then(|h| h.shorthand().ok().map(str::to_string))
+        .or_else(|| unborn_branch(repo))
+}
+
+/// The branch HEAD names before anything has been committed to it.
+///
+/// `repo.head()` cannot answer this, because the reference it would resolve does not
+/// exist yet — but the name is written in HEAD all the same, and a world that has just
+/// been started is on `main` in every sense a writer means by it. Without this the panel
+/// heads a brand-new world *not on a branch*, which is the sentence for a detached HEAD:
+/// a state you reach by looking at an old revision, and the one thing a repository with
+/// no revisions cannot be in.
+fn unborn_branch(repo: &Repository) -> Option<String> {
+    let head = repo.find_reference("HEAD").ok()?;
+    let Ok(Some(target)) = head.symbolic_target() else { return None };
+    Some(target.strip_prefix("refs/heads/")?.to_string())
 }
 
 fn pathspec(standing: &Standing) -> Option<String> {
@@ -133,11 +150,19 @@ pub fn status(standing: &Standing) -> Result<Status> {
     let repo = standing.open()?;
 
     let head = repo.head().ok();
-    let unborn = repo.head().is_err() && repo.is_empty().unwrap_or(false);
+    // Asked directly rather than through `is_empty`, which libgit2 answers by checking
+    // that HEAD still points at *its* idea of the default branch. A world this app
+    // started sets HEAD to `main` deliberately, so on a machine whose git has not been
+    // told the same thing, a repository with no commits in it reported itself as born —
+    // and the panel dropped the one line that says where to begin.
+    let unborn = matches!(repo.head(), Err(e) if e.code() == git2::ErrorCode::UnbornBranch);
     let branch = if repo.head_detached().unwrap_or(false) {
         None
     } else {
-        head.as_ref().and_then(|h| h.shorthand().ok()).map(str::to_string)
+        head.as_ref()
+            .and_then(|h| h.shorthand().ok())
+            .map(str::to_string)
+            .or_else(|| unborn_branch(&repo))
     };
     let head_commit = head.as_ref().and_then(|h| h.peel_to_commit().ok()).map(|c| Commit::of(&c));
 

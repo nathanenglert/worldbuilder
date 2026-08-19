@@ -15,6 +15,7 @@
     type Surfacing,
     type Terrain,
     type WorldEvent,
+    type WorldPlan,
     type WorldSummary,
   } from "./lib/api";
   import MapView from "./lib/MapView.svelte";
@@ -29,6 +30,9 @@
   import ExportPanel from "./lib/ExportPanel.svelte";
   import GoTo from "./lib/GoTo.svelte";
   import PillGroup from "./lib/PillGroup.svelte";
+  import NewWorld from "./lib/NewWorld.svelte";
+  import Welcome from "./lib/Welcome.svelte";
+  import EmptyWorld from "./lib/EmptyWorld.svelte";
   import {
     existenceWindow,
     idOf,
@@ -82,10 +86,21 @@
   let jumpExpr = $state("");
   let rootPath = $state("");
 
-  // ---- opening somebody else's world
-  let opening = $state(false);
+  // ---- which world
+  //
+  // One popover, two ways to answer the same question, entered by two buttons rather than
+  // by a mode control inside it: "open" and "new" are both operations on the folder the
+  // app is pointed at, and a writer looking for one of them is not browsing.
+  let opening = $state<"open" | "new" | null>(null);
   let openPath = $state("");
   let recent = $state<string[]>([]);
+  /**
+   * No world, and no world remembered — a first run, or one whose last world has moved.
+   *
+   * Held apart from `summary === null`, which is also true for the second and a half it
+   * takes to load one. This is the state where the app has nothing to show and knows it.
+   */
+  let welcoming = $state(false);
   let version = $state<{ branch: string | null; dirty: number; kind: string } | null>(null);
   /**
    * Version control did not answer.
@@ -444,6 +459,22 @@
     return mark.id !== null && mark.id !== selected ? (mark.where ?? mark.id) : mark.when;
   });
 
+  /**
+   * A world with nothing in it — which every world is, for its first few minutes.
+   *
+   * `backdrop` is in here because a writer who has imported a map has done something, and
+   * hiding it to tell them their world is empty would be answering a question they had
+   * already moved past. Without one there is provably nothing on the stage to cover up:
+   * the map draws a grid of nowhere, and the lineage chart draws nobody.
+   */
+  const barren = $derived(
+    !!summary &&
+      !backdrop &&
+      summary.entity_count === 0 &&
+      summary.event_count === 0 &&
+      summary.scene_count === 0,
+  );
+
   /** A mark on the spot the writer is standing on is not a way back to anywhere. */
   const canGoBack = $derived(!!mark && (mark.id !== selected || mark.day !== day));
 
@@ -461,6 +492,29 @@
   }
 
   async function open(path: string) {
+    await enter(path, () => api.openWorld(path));
+  }
+
+  /**
+   * Make a world, and land in it.
+   *
+   * The same arrival as opening one, because that is what the backend does last — there
+   * is no "created" state for the app to be in, and a screen congratulating somebody on
+   * an empty folder would be one more thing to click past.
+   */
+  async function create(plan: WorldPlan) {
+    await enter(plan.path, () => api.createWorld(plan));
+  }
+
+  /**
+   * Everything that happens when the world under the application changes.
+   *
+   * Split out from `open` when creating a world arrived, and worth splitting: the clearing
+   * below is the part that must not drift between the two ways in. A world made through
+   * the other door and then loaded through half of this would leave the last world's
+   * findings on screen under the new world's name.
+   */
+  async function enter(path: string, load: () => Promise<WorldSummary>) {
     busy = true;
     error = null;
     rootPath = path;
@@ -501,7 +555,8 @@
     lastPanel = "inspector";
 
     try {
-      summary = await api.openWorld(path);
+      summary = await load();
+      welcoming = false;
       events = await api.timeline();
       findings = await api.checkWorld();
       proposals = await api.listProposals();
@@ -524,6 +579,11 @@
       if (terrain) backdrop = await api.mapImage();
     } catch (e) {
       error = String(e);
+      // Nothing loaded, so there is nothing for a header to be the header of. The screen
+      // that has a path field on it is a better place to read "no world.yaml in that
+      // folder" than an empty one — and it is where a first run that mistypes a path
+      // would otherwise be stranded.
+      welcoming = !summary;
     } finally {
       busy = false;
     }
@@ -702,7 +762,13 @@
      */
     | { act: "edit"; kind: EditableKind; id: string | null; focus?: string; type?: string }
     | { act: "close" }
-    | { act: "open"; path: string };
+    | { act: "open"; path: string }
+    /**
+     * The same door as `open`, for the same reason: what comes back is a different world,
+     * so a half-written record in the form would go with it whether or not the world it
+     * belonged to was one that already existed.
+     */
+    | { act: "create"; plan: WorldPlan };
 
   /** What the form is holding back until the writer says what to do with it. */
   let held = $state<Intent | null>(null);
@@ -808,6 +874,9 @@
       editTarget = { kind: intent.kind, id: intent.id, focus: intent.focus, type: intent.type };
       if (intent.id) selected = intent.id;
       show("edit");
+    } else if (intent.act === "create") {
+      show("inspector");
+      void create(intent.plan);
     } else if (intent.act === "open") {
       // Set here rather than left to `open`, which only gets there after the load: a
       // panel that still said "edit" over a form that had just been dropped would be a
@@ -963,6 +1032,8 @@
         return intent.id === null ? `Starting a new ${intent.kind}` : `Opening ${intent.id}`;
       case "open":
         return `Opening ${intent.path.split("/").pop()}`;
+      case "create":
+        return `Starting ${intent.plan.name}`;
       case "close":
         return "Leaving this form";
     }
@@ -1010,19 +1081,20 @@
       return;
     }
     try {
-      // The world this writer had open last, if it is still there, and the bundled
-      // example otherwise. A local-first tool that could only ever open its own demo
-      // was the oldest limitation in this app.
+      // The world this writer had open last, if it is still there. Nothing means nothing:
+      // no world has ever been opened on this machine, or the one that was has moved, and
+      // in both cases the honest screen is the one that says so and offers three doors.
       const path = await api.initialWorld();
       if (path) await open(path);
-      else error = "Could not locate a world to open.";
+      else welcoming = true;
     } catch (e) {
       error = String(e);
+      welcoming = true;
     }
   });
 </script>
 
-<div class="app">
+<div class="app" class:welcoming>
   <header>
     <!-- One line, not two. Stacked, this block was 55px tall and the tallest thing in the
          header — which is most of what the chip row below now costs, so collapsing it pays
@@ -1035,8 +1107,24 @@
            is a fact about dates rather than about identity. It has gone where the dates
            are, as the readout's title. -->
       <p class="eyebrow">
-        <button class="open" onclick={() => (opening = !opening)} title="Open another world folder">
-          {opening ? "cancel" : "open…"}
+        <button
+          class="open"
+          aria-pressed={opening === "open"}
+          onclick={() => (opening = opening === "open" ? null : "open")}
+          title="Open another world folder"
+        >
+          {opening === "open" ? "cancel" : "open…"}
+        </button>
+        <!-- Next to `open…` because they answer one question — which folder is this app
+             pointed at — and a writer who has just finished one world and is starting the
+             next looks for both of them in the same place. -->
+        <button
+          class="open"
+          aria-pressed={opening === "new"}
+          onclick={() => (opening = opening === "new" ? null : "new")}
+          title="Start a new world"
+        >
+          {opening === "new" ? "cancel" : "new…"}
         </button>
         <!-- Beside "open…" rather than out among the counts. Both are operations on the
              world as a folder of files rather than on anything inside it, and publish had
@@ -1086,9 +1174,14 @@
         void jump();
       }}
     >
+      <!-- The third example is one of this world's own events, because it was the siege of
+           Marrow in every world — and in a world that has never heard of Marrow it named a
+           record that does not exist, in the one field whose whole job is to accept the id
+           of a record that does. The first two are grammar rather than content: a
+           zero-padded date, and a year loose enough to be worth a `~`. -->
       <input
         bind:value={jumpExpr}
-        placeholder="0812-04  ·  812~  ·  @evt_siege_of_marrow+2y"
+        placeholder={`0812-04  ·  812~  ·  ${anchors[0] ?? "@an_event"}+2y`}
         spellcheck="false"
         aria-label="Jump to a date"
       />
@@ -1271,7 +1364,7 @@
     {/if}
   </header>
 
-  {#if opening}
+  {#if opening === "open"}
     <!-- A path field rather than a native folder picker: no extra plugin, and a native
          modal cannot be driven by the automation that verifies everything else here. -->
     <form
@@ -1280,7 +1373,7 @@
         e.preventDefault();
         const path = openPath.trim();
         if (!path) return;
-        opening = false;
+        opening = null;
         openPath = "";
         intend({ act: "open", path });
       }}
@@ -1298,7 +1391,7 @@
           class="recent"
           title={p}
           onclick={() => {
-            opening = false;
+            opening = null;
             intend({ act: "open", path: p });
           }}
         >
@@ -1306,6 +1399,21 @@
         </button>
       {/each}
     </form>
+  {:else if opening === "new"}
+    <!-- The same form the welcome screen leads with, in the place a writer who already
+         has a world would go looking for it. Nothing about starting a world is different
+         the second time. -->
+    <div class="opener starting">
+      <div class="sheet">
+        <NewWorld
+          {busy}
+          oncreate={(plan) => {
+            opening = null;
+            intend({ act: "create", plan });
+          }}
+        />
+      </div>
+    </div>
   {/if}
 
   {#if error}
@@ -1318,12 +1426,29 @@
     </p>
   {/if}
 
+  {#if welcoming}
+    <Welcome
+      {busy}
+      oncreate={(plan) => intend({ act: "create", plan })}
+      onopen={(path) => intend({ act: "open", path })}
+      onexample={async () => {
+        const path = await api.examplePath();
+        if (path) intend({ act: "open", path });
+        else error = "The example world is not where this build expected it to be.";
+      }}
+    />
+  {/if}
+
   <div class="body" class:editing={panel === "edit"} bind:this={bodyEl}>
     <div class="stage">
-      <!-- Two projections of one timeline: the map onto the ground, the lineage onto
-           descent. They swap here rather than sitting side by side, because both want
-           the width and both are driven by the same scrubber underneath. -->
-      {#if view === "map"}
+      <!-- The centre pane, and one arm for each thing it can be a pane *of*. Two of them
+           are projections of one timeline — the map onto the ground, the lineage onto
+           descent — and they swap here rather than sitting side by side, because both want
+           the width and both are driven by the same scrubber underneath. The third is a
+           world that has neither yet, and would otherwise get a projection of nothing. -->
+      {#if barren}
+        <EmptyWorld path={rootPath} onnew={(kind) => openEditor(kind, null)} />
+      {:else if view === "map"}
         <MapView
           kept={kept.map}
           {snapshot}
@@ -1351,7 +1476,7 @@
         <div class="opening">Opening {opened}…</div>
       {/if}
 
-      {#if summary}
+      {#if summary && !barren}
         <div class="views">
           <PillGroup
             options={[
@@ -1821,6 +1946,24 @@
     background: var(--surface);
   }
 
+  /*
+   * Four questions rather than one, so it is a block instead of a row. The band still
+   * runs the width of the window — it is the same bar the opener is, and half a rule
+   * across the header would read as damage — but the form inside it is bounded, because
+   * a field stretched across 1360 pixels puts its label a screen away from itself.
+   *
+   * In flow rather than floating over the map, which is what the opener beside it already
+   * does. One of the two behaving like a dropdown would make two controls out of one idea.
+   */
+  .opener.starting {
+    display: block;
+    padding: var(--s-7) var(--s-8) var(--s-8);
+  }
+
+  .opener.starting .sheet {
+    max-width: 520px;
+  }
+
   .opener input {
     flex: 1;
     min-width: 220px;
@@ -1888,6 +2031,22 @@
     min-height: 0;
     display: grid;
     grid-template-columns: 1fr minmax(280px, 350px);
+  }
+
+  /*
+   * There is no world, so there is nothing for any of this to be about: a header naming
+   * a world that is not open, a map of nowhere, and a scrubber with no span to run along.
+   * Both of the header's controls are on the welcome screen anyway, in full sentences
+   * rather than as `open…`.
+   *
+   * Hidden rather than branched around, and `display: none` rather than a class that
+   * merely looks empty, because that is what also takes the whole lot out of the tab
+   * order — which is the half that a screen covered by another screen usually gets wrong.
+   */
+  .app.welcoming header,
+  .app.welcoming .body,
+  .app.welcoming .placeholder {
+    display: none;
   }
 
   .stage {

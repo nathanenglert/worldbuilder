@@ -73,10 +73,17 @@ fn seed_world(at: &Path) {
 /// A repository with an author configured locally and one commit in it.
 fn repo_at(at: &Path) -> Repository {
     let repo = Repository::init(at).expect("init");
+    configure_author(&repo);
+    repo
+}
+
+/// Locally, because [`hermetic_config`] has taken the machine's own identity away — and
+/// a repository this app started has no author until the writer's global config supplies
+/// one, which in a test is nobody.
+fn configure_author(repo: &Repository) {
     let mut config = repo.config().expect("config");
     config.set_str("user.name", "A Writer").expect("name");
     config.set_str("user.email", "writer@example.invalid").expect("email");
-    repo
 }
 
 fn commit_all(standing: &Standing, message: &str) {
@@ -163,6 +170,73 @@ fn a_repository_that_cannot_be_read_is_an_error_rather_than_an_empty_status() {
     assert!(
         wb_git::status(&standing).is_err(),
         "a repository that cannot be read must say so rather than report a clean tree"
+    );
+}
+
+/// The branch name is not cosmetic: it is what canon resolves to.
+///
+/// `canon_of` looks for `origin/HEAD`, then `main`, then `master`. A world started on a
+/// machine whose git still defaults to `master` would land on the third of those, so
+/// every what-if the writer ever made would be measured against a branch chosen by which
+/// version of git happened to be installed.
+#[test]
+fn a_world_that_has_just_been_started_is_a_repository_root_on_main() {
+    let sandbox = Sandbox::new("init");
+    seed_world(sandbox.path());
+    assert_eq!(Standing::of(sandbox.path()).slug(), "none", "nothing tracks it yet");
+
+    let standing = wb_git::init(sandbox.path()).expect("init");
+    assert_eq!(standing.slug(), "root");
+
+    let before = wb_git::status(&standing).expect("status");
+    assert!(before.unborn, "a repository with nowhere to compare from yet");
+    assert_eq!(before.branch.as_deref(), Some("main"), "on a branch before it has commits");
+    assert_eq!(before.canon.as_deref(), Some("main"), "and it is its own canon");
+    assert!(
+        before.dirty.iter().any(|c| c.path == "world.yaml"),
+        "and everything in the folder waiting to go into the first save point"
+    );
+
+    configure_author(&Repository::open(sandbox.path()).expect("open"));
+    commit_all(&standing, "the world, such as it is");
+
+    let after = wb_git::status(&standing).expect("status");
+    assert_eq!(after.branch.as_deref(), Some("main"));
+    assert_eq!(after.canon.as_deref(), Some("main"), "and it is its own canon");
+}
+
+/// A world folder inside a repository about other things gets its own history.
+///
+/// The alternative is honouring the outer repository, which is [`Standing::Nested`] —
+/// the read-only arm, where making a save point is refused. A writer who asked for this
+/// world to be tracked asked for the arm where that works.
+#[test]
+fn a_world_started_inside_a_bigger_repository_gets_a_history_of_its_own() {
+    let sandbox = Sandbox::new("init-nested");
+    let world = sandbox.path().join("worlds/somewhere");
+    repo_at(sandbox.path());
+    seed_world(&world);
+    assert_eq!(Standing::of(&world).slug(), "nested");
+
+    let standing = wb_git::init(&world).expect("init");
+    assert_eq!(standing.slug(), "root");
+    assert_eq!(standing.repo(), Some(world.canonicalize().expect("canonical").as_path()));
+}
+
+#[test]
+fn starting_a_world_that_is_already_a_repository_leaves_its_history_alone() {
+    let sandbox = Sandbox::new("init-again");
+    seed_world(sandbox.path());
+    repo_at(sandbox.path());
+    let standing = Standing::of(sandbox.path());
+    commit_all(&standing, "the world as it stands");
+
+    let again = wb_git::init(sandbox.path()).expect("init an existing repository");
+    assert_eq!(again.slug(), "root");
+    assert_eq!(
+        wb_git::history(&again, 10).expect("history").commits.len(),
+        1,
+        "the save point that was already there"
     );
 }
 

@@ -19,6 +19,7 @@
 //! order-independent, and re-dating an event replays nothing.
 
 pub mod atomic;
+pub mod create;
 pub mod error;
 pub mod freshness;
 pub mod frontmatter;
@@ -33,6 +34,7 @@ pub mod world;
 pub mod write;
 pub mod yaml;
 
+pub use create::{Timekeeping, scaffold};
 pub use error::{Error, Result};
 pub use load::load;
 pub use model::{

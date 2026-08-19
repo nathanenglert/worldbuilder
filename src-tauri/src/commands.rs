@@ -568,13 +568,78 @@ pub fn decide_proposal(
         .map(|(_, summary)| summary)
 }
 
+/// `~/worlds/vashen`, as a path.
+///
+/// A world folder is typed in rather than picked from a native dialog — that decision is
+/// the one that keeps every screen here drivable by automation — and a path a person
+/// types very often starts with a tilde. `PathBuf` has never heard of one. Without this,
+/// opening `~/worlds/vashen` fails with a sentence about a folder that plainly exists,
+/// and *creating* it makes a directory actually called `~` beside whatever the app's
+/// working directory happens to be.
+fn expand(app: &tauri::AppHandle, path: &str) -> PathBuf {
+    use tauri::Manager;
+    let path = path.trim();
+    let Some(rest) = path.strip_prefix("~/") else { return PathBuf::from(path) };
+    match app.path().home_dir() {
+        Ok(home) => home.join(rest),
+        // Nothing better to do than take it literally, which is what would have happened
+        // anyway — and the failure is then visible rather than silently redirected.
+        Err(_) => PathBuf::from(path),
+    }
+}
+
+/// Make a world where there was not one, and open it.
+///
+/// One command rather than three, because the states in between are ones nobody should
+/// have to reason about: a `world.yaml` the app never opened, or a world that exists but
+/// is not tracked because a later call failed. What it does is small — a folder, a file,
+/// and a `.git` — and all of it is the writer's, which is why the app can hand the whole
+/// thing over and then get out of the way.
+///
+/// The world starts empty. Seeding it with three people and a kingdom would be inventing
+/// somebody's fiction for them, and every one of those records would be a thing to delete
+/// before the real work started.
+#[tauri::command]
+pub fn create_world(
+    path: String,
+    name: String,
+    calendar: String,
+    track: bool,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<WorldSummary, String> {
+    let root = expand(&app, &path);
+    if root.as_os_str().is_empty() {
+        return Err("a world needs a folder to live in".to_string());
+    }
+
+    wb_store::scaffold(&root, &name, wb_store::Timekeeping::parse(&calendar))
+        .map_err(|e| e.to_string())?;
+
+    // Tracking is the one part that can fail after the world exists, and deleting the
+    // writer's brand-new world over it would be a worse answer than saying so: the world
+    // is on disk and correct, and `git init` in that folder is exactly what the version
+    // panel would have told them to do anyway.
+    if track {
+        wb_git::init(&root).map_err(|e| {
+            format!(
+                "{} was created in {}, but version control could not be started there: {e}",
+                name.trim(),
+                root.display()
+            )
+        })?;
+    }
+
+    open_world(root.display().to_string(), app, state)
+}
+
 #[tauri::command]
 pub fn open_world(
     path: String,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<WorldSummary, String> {
-    let root = PathBuf::from(path.trim());
+    let root = expand(&app, &path);
     // Checked before the load, so a mistyped path says what is actually wrong instead of
     // surfacing whatever the loader tripped over three folders down.
     if !root.join("world.yaml").is_file() {
@@ -614,14 +679,16 @@ pub fn example_world_path() -> Option<String> {
         .map(|p| p.display().to_string())
 }
 
-/// What to open on launch: the last world that is still there, else the example.
+/// What to open on launch: the last world the writer had open, if it is still there.
 ///
-/// A tool whose files are the writer's own should reopen the writer's own files. Until
-/// this slice the app could only ever open the world it shipped with, which made every
-/// other feature in it a demo.
+/// `None` on a first run, and *not* the bundled example, which is what this used to fall
+/// back to. Opening somebody else's fiction unannounced is a strange first move for a
+/// tool whose whole claim is that the files are yours — the writer had to read the header
+/// to work out that the duchy on screen was not theirs. The welcome screen offers the
+/// example by name instead, next to making a world of their own.
 #[tauri::command]
 pub fn initial_world(app: tauri::AppHandle) -> Option<String> {
-    recent_worlds(app).into_iter().next().or_else(example_world_path)
+    recent_worlds(app).into_iter().next()
 }
 
 /// The last few world folders opened, newest first, skipping any that have moved.

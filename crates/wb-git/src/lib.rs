@@ -137,6 +137,34 @@ impl Standing {
     }
 }
 
+/// Start tracking a world folder, so version control can do more than describe it.
+///
+/// Deliberately not in `write.rs`. Everything there goes through
+/// [`Standing::open_writable`], whose entire job is to refuse a folder that is not a
+/// repository root — which is exactly the folder this is called on. It also moves
+/// nothing the writer wrote: it creates `.git`, and stops.
+///
+/// `main` explicitly, because canon is `origin/HEAD`, then `main`, then `master`. Left
+/// to `git init`'s own default, a world made on a machine whose git still starts on
+/// `master` would be measured against a branch chosen by a version number rather than
+/// by anybody.
+///
+/// A folder that is already a repository root is left exactly as it stands. A world
+/// *inside* a larger repository gets its own history regardless: being tracked by that
+/// repository is the read-only arm of [`Standing`], and a writer asking for this has
+/// asked for the other one.
+pub fn init(world_root: &Path) -> Result<Standing> {
+    if let standing @ Standing::Root { .. } = Standing::of(world_root) {
+        return Ok(standing);
+    }
+
+    let mut options = git2::RepositoryInitOptions::new();
+    options.initial_head("main");
+    git2::Repository::init_opts(world_root, &options)?;
+
+    Ok(Standing::of(world_root))
+}
+
 /// True for anything inside the derived-cache folder, at any depth.
 ///
 /// Used by the status walk and the staging callback. Without it, running one comparison

@@ -86,9 +86,11 @@ pnpm install
 pnpm tauri dev
 ```
 
-It opens the last world you had open, or `examples/vashen` on a first run: twelve records,
-three events, a border contested at a siege dated only to the month, and two open questions
-the consistency engine will not resolve for you.
+It opens the last world you had open. On a first run it offers to start one — a folder, a
+name, and whether time runs on Earth's calendar or one of your own — and, beside that, the
+example world: twelve records, three events, a border contested at a siege dated only to
+the month, and two open questions the consistency engine will not resolve for you. Take the
+example first; everything below is in it.
 
 Jump to `@evt_siege_of_marrow` and watch the Vale go hatched. Switch the terrain layer to
 **rain** and see why the Vashen Empire wants the Vale at all. Switch the centre pane to
